@@ -22,14 +22,8 @@ import java.nio.ByteBuffer
 import java.nio.channels.{Pipe, ReadableByteChannel, WritableByteChannel}
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicBoolean
+
 import javax.annotation.Nullable
-
-import scala.concurrent.{Future, Promise}
-import scala.reflect.ClassTag
-import scala.util.{DynamicVariable, Failure, Success, Try}
-import scala.util.control.NonFatal
-
-import org.apache.spark.{SecurityManager, SparkConf}
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.TransportContext
 import org.apache.spark.network.client._
@@ -39,25 +33,31 @@ import org.apache.spark.network.server._
 import org.apache.spark.rpc._
 import org.apache.spark.serializer.{JavaSerializer, JavaSerializerInstance}
 import org.apache.spark.util.{ThreadUtils, Utils}
+import org.apache.spark.{SecurityManager, SparkConf}
+
+import scala.concurrent.{Future, Promise}
+import scala.reflect.ClassTag
+import scala.util.control.NonFatal
+import scala.util.{DynamicVariable, Failure, Success, Try}
 
 private[netty] class NettyRpcEnv(
                                     val conf: SparkConf,
                                     javaSerializerInstance: JavaSerializerInstance,
                                     host: String,
                                     securityManager: SecurityManager) extends RpcEnv(conf) with Logging {
-    
+
     private[netty] val transportConf = SparkTransportConf.fromSparkConf(
         conf.clone.set("spark.rpc.io.numConnectionsPerPeer", "1"),
         "rpc",
         conf.getInt("spark.rpc.io.threads", 0))
-    
+    // 创建消息分发器, 会创建一个收件箱
     private val dispatcher: Dispatcher = new Dispatcher(this)
-    
+
     private val streamManager = new NettyStreamManager(this)
-    
+
     private val transportContext = new TransportContext(transportConf,
         new NettyRpcHandler(dispatcher, this, streamManager))
-    
+
     private def createClientBootstraps(): java.util.List[TransportClientBootstrap] = {
         if (securityManager.isAuthenticationEnabled()) {
             java.util.Arrays.asList(new SaslClientBootstrap(transportConf, "", securityManager,
@@ -66,9 +66,9 @@ private[netty] class NettyRpcEnv(
             java.util.Collections.emptyList[TransportClientBootstrap]
         }
     }
-    
+
     private val clientFactory = transportContext.createClientFactory(createClientBootstraps())
-    
+
     /**
       * A separate client factory for file downloads. This avoids using the same RPC handler as
       * the main RPC context, so that events caused by these clients are kept isolated from the
@@ -78,26 +78,27 @@ private[netty] class NettyRpcEnv(
       * connections per peer.
       */
     @volatile private var fileDownloadFactory: TransportClientFactory = _
-    
+
     val timeoutScheduler = ThreadUtils.newDaemonSingleThreadScheduledExecutor("netty-rpc-env-timeout")
-    
+
     // Because TransportClientFactory.createClient is blocking, we need to run it in this thread pool
     // to implement non-blocking send/ask.
     // TODO: a non-blocking TransportClientFactory.createClient in future
     private[netty] val clientConnectionExecutor = ThreadUtils.newDaemonCachedThreadPool(
         "netty-rpc-connection",
         conf.getInt("spark.rpc.connect.threads", 64))
-    
+
     @volatile private var server: TransportServer = _
-    
+
     private val stopped = new AtomicBoolean(false)
-    
+
     /**
       * A map for [[RpcAddress]] and [[Outbox]]. When we are connecting to a remote [[RpcAddress]],
       * we just put messages to its [[Outbox]] to implement a non-blocking `send` method.
+      * 存储 RpcAddress 和 Outbox 的 map
       */
     private val outboxes = new ConcurrentHashMap[RpcAddress, Outbox]()
-    
+
     /**
       * Remove the address's Outbox and stop it.
       */
@@ -107,7 +108,7 @@ private[netty] class NettyRpcEnv(
             outbox.stop()
         }
     }
-    
+
     def startServer(bindAddress: String, port: Int): Unit = {
         val bootstraps: java.util.List[TransportServerBootstrap] =
             if (securityManager.isAuthenticationEnabled()) {
@@ -119,16 +120,16 @@ private[netty] class NettyRpcEnv(
         dispatcher.registerRpcEndpoint(
             RpcEndpointVerifier.NAME, new RpcEndpointVerifier(this, dispatcher))
     }
-    
+
     @Nullable
     override lazy val address: RpcAddress = {
         if (server != null) RpcAddress(host, server.getPort()) else null
     }
-    
+
     override def setupEndpoint(name: String, endpoint: RpcEndpoint): RpcEndpointRef = {
         dispatcher.registerRpcEndpoint(name, endpoint)
     }
-    
+
     def asyncSetupEndpointRefByURI(uri: String): Future[RpcEndpointRef] = {
         val addr = RpcEndpointAddress(uri)
         val endpointRef = new NettyRpcEndpointRef(conf, addr, this)
@@ -142,12 +143,12 @@ private[netty] class NettyRpcEnv(
             }
         }(ThreadUtils.sameThread)
     }
-    
+
     override def stop(endpointRef: RpcEndpointRef): Unit = {
         require(endpointRef.isInstanceOf[NettyRpcEndpointRef])
         dispatcher.stop(endpointRef)
     }
-    
+
     private def postToOutbox(receiver: NettyRpcEndpointRef, message: OutboxMessage): Unit = {
         if (receiver.client != null) {
             message.sendWith(receiver.client)
@@ -177,7 +178,7 @@ private[netty] class NettyRpcEnv(
             }
         }
     }
-    
+
     private[netty] def send(message: RequestMessage): Unit = {
         val remoteAddr = message.receiver.address
         if (remoteAddr == address) {
@@ -192,21 +193,21 @@ private[netty] class NettyRpcEnv(
             postToOutbox(message.receiver, OneWayOutboxMessage(serialize(message)))
         }
     }
-    
+
     private[netty] def createClient(address: RpcAddress): TransportClient = {
         clientFactory.createClient(address.host, address.port)
     }
-    
+
     private[netty] def ask[T: ClassTag](message: RequestMessage, timeout: RpcTimeout): Future[T] = {
         val promise = Promise[Any]()
         val remoteAddr = message.receiver.address
-        
+
         def onFailure(e: Throwable): Unit = {
             if (!promise.tryFailure(e)) {
                 logWarning(s"Ignored failure: $e")
             }
         }
-        
+
         def onSuccess(reply: Any): Unit = reply match {
             case RpcFailure(e) => onFailure(e)
             case rpcReply =>
@@ -214,7 +215,7 @@ private[netty] class NettyRpcEnv(
                     logWarning(s"Ignored message: $reply")
                 }
         }
-        
+
         try {
             if (remoteAddr == address) {
                 val p = Promise[Any]()
@@ -233,7 +234,7 @@ private[netty] class NettyRpcEnv(
                     case _ =>
                 }(ThreadUtils.sameThread)
             }
-            
+
             val timeoutCancelable = timeoutScheduler.schedule(new Runnable {
                 override def run(): Unit = {
                     onFailure(new TimeoutException(s"Cannot receive any reply in ${timeout.duration}"))
@@ -248,11 +249,11 @@ private[netty] class NettyRpcEnv(
         }
         promise.future.mapTo[T].recover(timeout.addMessageIfTimeout)(ThreadUtils.sameThread)
     }
-    
+
     private[netty] def serialize(content: Any): ByteBuffer = {
         javaSerializerInstance.serialize(content)
     }
-    
+
     private[netty] def deserialize[T: ClassTag](client: TransportClient, bytes: ByteBuffer): T = {
         NettyRpcEnv.currentClient.withValue(client) {
             deserialize { () =>
@@ -260,24 +261,24 @@ private[netty] class NettyRpcEnv(
             }
         }
     }
-    
+
     override def endpointRef(endpoint: RpcEndpoint): RpcEndpointRef = {
         dispatcher.getRpcEndpointRef(endpoint)
     }
-    
+
     override def shutdown(): Unit = {
         cleanup()
     }
-    
+
     override def awaitTermination(): Unit = {
         dispatcher.awaitTermination()
     }
-    
+
     private def cleanup(): Unit = {
         if (!stopped.compareAndSet(false, true)) {
             return
         }
-        
+
         val iter = outboxes.values().iterator()
         while (iter.hasNext()) {
             val outbox = iter.next()
@@ -303,21 +304,21 @@ private[netty] class NettyRpcEnv(
             fileDownloadFactory.close()
         }
     }
-    
+
     override def deserialize[T](deserializationAction: () => T): T = {
         NettyRpcEnv.currentEnv.withValue(this) {
             deserializationAction()
         }
     }
-    
+
     override def fileServer: RpcEnvFileServer = streamManager
-    
+
     override def openChannel(uri: String): ReadableByteChannel = {
         val parsedUri = new URI(uri)
         require(parsedUri.getHost() != null, "Host name must be defined.")
         require(parsedUri.getPort() > 0, "Port must be defined.")
         require(parsedUri.getPath() != null && parsedUri.getPath().nonEmpty, "Path must be defined.")
-        
+
         val pipe = Pipe.open()
         val source = new FileDownloadChannel(pipe.source())
         try {
@@ -330,17 +331,17 @@ private[netty] class NettyRpcEnv(
                 source.close()
                 throw e
         }
-        
+
         source
     }
-    
+
     private def downloadClient(host: String, port: Int): TransportClient = {
         if (fileDownloadFactory == null) synchronized {
             if (fileDownloadFactory == null) {
                 val module = "files"
                 val prefix = "spark.rpc.io."
                 val clone = conf.clone()
-                
+
                 // Copy any RPC configuration that is not overridden in the spark.files namespace.
                 conf.getAll.foreach { case (key, value) =>
                     if (key.startsWith(prefix)) {
@@ -348,7 +349,7 @@ private[netty] class NettyRpcEnv(
                         clone.setIfMissing(s"spark.$module.io.$opt", value)
                     }
                 }
-                
+
                 val ioThreads = clone.getInt("spark.files.io.threads", 1)
                 val downloadConf = SparkTransportConf.fromSparkConf(clone, module, ioThreads)
                 val downloadContext = new TransportContext(downloadConf, new NoOpRpcHandler(), true)
@@ -357,16 +358,16 @@ private[netty] class NettyRpcEnv(
         }
         fileDownloadFactory.createClient(host, port)
     }
-    
+
     private class FileDownloadChannel(source: ReadableByteChannel) extends ReadableByteChannel {
-        
+
         @volatile private var error: Throwable = _
-        
+
         def setError(e: Throwable): Unit = {
             error = e
             source.close()
         }
-        
+
         override def read(dst: ByteBuffer): Int = {
             Try(source.read(dst)) match {
                 case Success(bytesRead) => bytesRead
@@ -378,36 +379,36 @@ private[netty] class NettyRpcEnv(
                     }
             }
         }
-        
+
         override def close(): Unit = source.close()
-        
+
         override def isOpen(): Boolean = source.isOpen()
-        
+
     }
-    
+
     private class FileDownloadCallback(
                                           sink: WritableByteChannel,
                                           source: FileDownloadChannel,
                                           client: TransportClient) extends StreamCallback {
-        
+
         override def onData(streamId: String, buf: ByteBuffer): Unit = {
             while (buf.remaining() > 0) {
                 sink.write(buf)
             }
         }
-        
+
         override def onComplete(streamId: String): Unit = {
             sink.close()
         }
-        
+
         override def onFailure(streamId: String, cause: Throwable): Unit = {
             logDebug(s"Error downloading stream $streamId.", cause)
             source.setError(cause)
             sink.close()
         }
-        
+
     }
-    
+
 }
 
 private[netty] object NettyRpcEnv extends Logging {
@@ -422,32 +423,39 @@ private[netty] object NettyRpcEnv extends Logging {
       * }}}
       */
     private[netty] val currentEnv = new DynamicVariable[NettyRpcEnv](null)
-    
+
     /**
       * Similar to `currentEnv`, this variable references the client instance associated with an
       * RPC, in case it's needed to find out the remote address during deserialization.
       */
     private[netty] val currentClient = new DynamicVariable[TransportClient](null)
-    
+
 }
 
 private[rpc] class NettyRpcEnvFactory extends RpcEnvFactory with Logging {
-    
+
     def create(config: RpcEnvConfig): RpcEnv = {
         val sparkConf = config.conf
         // Use JavaSerializerInstance in multiple threads is safe. However, if we plan to support
         // KryoSerializer in future, we have to use ThreadLocal to store SerializerInstance
-        val javaSerializerInstance =
-        new JavaSerializer(sparkConf).newInstance().asInstanceOf[JavaSerializerInstance]
-        val nettyEnv =
-            new NettyRpcEnv(sparkConf, javaSerializerInstance, config.advertiseAddress,
-                config.securityManager)
+        // 用于 Rpc传输对象时的序列化
+        val javaSerializerInstance: JavaSerializerInstance = new JavaSerializer(sparkConf)
+            .newInstance()
+            .asInstanceOf[JavaSerializerInstance]
+        // 实例化 NettyRpcEnv
+        val nettyEnv = new NettyRpcEnv(
+            sparkConf,
+            javaSerializerInstance,
+            config.advertiseAddress,
+            config.securityManager)
         if (!config.clientMode) {
+            // 定义 NettyRpcEnv 的启动函数
             val startNettyRpcEnv: Int => (NettyRpcEnv, Int) = { actualPort =>
                 nettyEnv.startServer(config.bindAddress, actualPort)
                 (nettyEnv, nettyEnv.address.port)
             }
             try {
+                // 启动 NettyRpcEnv
                 Utils.startServiceOnPort(config.port, startNettyRpcEnv, sparkConf, config.name)._1
             } catch {
                 case NonFatal(e) =>
@@ -484,45 +492,45 @@ private[netty] class NettyRpcEndpointRef(
                                             endpointAddress: RpcEndpointAddress,
                                             @transient @volatile private var nettyEnv: NettyRpcEnv)
     extends RpcEndpointRef(conf) with Serializable with Logging {
-    
+
     @transient
     @volatile var client: TransportClient = _
-    
+
     private val _address = if (endpointAddress.rpcAddress != null) endpointAddress else null
     private val _name = endpointAddress.name
-    
+
     override def address: RpcAddress = if (_address != null) _address.rpcAddress else null
-    
+
     private def readObject(in: ObjectInputStream): Unit = {
         in.defaultReadObject()
         nettyEnv = NettyRpcEnv.currentEnv.value
         client = NettyRpcEnv.currentClient.value
     }
-    
+
     private def writeObject(out: ObjectOutputStream): Unit = {
         out.defaultWriteObject()
     }
-    
+
     override def name: String = _name
-    
+
     override def ask[T: ClassTag](message: Any, timeout: RpcTimeout): Future[T] = {
         nettyEnv.ask(RequestMessage(nettyEnv.address, this, message), timeout)
     }
-    
+
     override def send(message: Any): Unit = {
         require(message != null, "Message is null")
         nettyEnv.send(RequestMessage(nettyEnv.address, this, message))
     }
-    
+
     override def toString: String = s"NettyRpcEndpointRef(${_address})"
-    
+
     def toURI: URI = new URI(_address.toString)
-    
+
     final override def equals(that: Any): Boolean = that match {
         case other: NettyRpcEndpointRef => _address == other._address
         case _ => false
     }
-    
+
     final override def hashCode(): Int = if (_address == null) 0 else _address.hashCode()
 }
 
@@ -553,10 +561,10 @@ private[netty] class NettyRpcHandler(
                                         dispatcher: Dispatcher,
                                         nettyEnv: NettyRpcEnv,
                                         streamManager: StreamManager) extends RpcHandler with Logging {
-    
+
     // A variable to track the remote RpcEnv addresses of all clients
     private val remoteAddresses = new ConcurrentHashMap[RpcAddress, RpcAddress]()
-    
+
     override def receive(
                             client: TransportClient,
                             message: ByteBuffer,
@@ -564,14 +572,14 @@ private[netty] class NettyRpcHandler(
         val messageToDispatch = internalReceive(client, message)
         dispatcher.postRemoteMessage(messageToDispatch, callback)
     }
-    
+
     override def receive(
                             client: TransportClient,
                             message: ByteBuffer): Unit = {
         val messageToDispatch = internalReceive(client, message)
         dispatcher.postOneWayMessage(messageToDispatch)
     }
-    
+
     private def internalReceive(client: TransportClient, message: ByteBuffer): RequestMessage = {
         val addr = client.getChannel().remoteAddress().asInstanceOf[InetSocketAddress]
         assert(addr != null)
@@ -590,9 +598,9 @@ private[netty] class NettyRpcHandler(
             requestMessage
         }
     }
-    
+
     override def getStreamManager: StreamManager = streamManager
-    
+
     override def exceptionCaught(cause: Throwable, client: TransportClient): Unit = {
         val addr = client.getChannel.remoteAddress().asInstanceOf[InetSocketAddress]
         if (addr != null) {
@@ -611,14 +619,14 @@ private[netty] class NettyRpcHandler(
             logError("Exception before connecting to the client", cause)
         }
     }
-    
+
     override def channelActive(client: TransportClient): Unit = {
         val addr = client.getChannel().remoteAddress().asInstanceOf[InetSocketAddress]
         assert(addr != null)
         val clientAddr = RpcAddress(addr.getHostString, addr.getPort)
         dispatcher.postToAll(RemoteProcessConnected(clientAddr))
     }
-    
+
     override def channelInactive(client: TransportClient): Unit = {
         val addr = client.getChannel.remoteAddress().asInstanceOf[InetSocketAddress]
         if (addr != null) {
