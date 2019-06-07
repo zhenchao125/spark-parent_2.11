@@ -158,7 +158,7 @@ private[spark] class Executor(
         val tr = new TaskRunner(context, taskId = taskId, attemptNumber = attemptNumber, taskName,
             serializedTask)
         runningTasks.put(taskId, tr)
-        // 在线程池中执行 task
+        // 在线程池中执行 task   所以 task 的执行级别是线程级
         threadPool.execute(tr)
     }
 

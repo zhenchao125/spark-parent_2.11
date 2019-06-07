@@ -60,6 +60,7 @@ private[spark] class CoarseGrainedExecutorBackend(
             // This is a very fast action so we can use "ThreadUtils.sameThread"
             driver = Some(ref)
             // 向驱动注册 Executor
+            //  CoarseGrainedSchedulerBackend
             ref.ask[Boolean](RegisterExecutor(executorId, self, hostname, cores, extractLogUrls))
         }(ThreadUtils.sameThread).onComplete {
             // This is a very fast action so we can use "ThreadUtils.sameThread"
@@ -96,8 +97,10 @@ private[spark] class CoarseGrainedExecutorBackend(
             if (executor == null) {
                 exitExecutor(1, "Received LaunchTask command but executor was null")
             } else {
-                val taskDesc = ser.deserialize[TaskDescription](data.value)
+                // 反序列化任务
+                val taskDesc: TaskDescription = ser.deserialize[TaskDescription](data.value)
                 logInfo("Got assigned task " + taskDesc.taskId)
+                // 启动任务
                 executor.launchTask(this, taskId = taskDesc.taskId, attemptNumber = taskDesc.attemptNumber,
                     taskDesc.name, taskDesc.serializedTask)
             }
@@ -286,6 +289,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
         }
         // 启动 CoarseGrainedExecutorBackend
         run(driverUrl, executorId, hostname, cores, appId, workerUrl, userClassPath)
+        // 运行结束之后退出进程
         System.exit(0)
     }
 

@@ -33,7 +33,7 @@ private[spark] trait SchedulingAlgorithm {
 private[spark] class FIFOSchedulingAlgorithm extends SchedulingAlgorithm {
     // 是不是先调度 s1
     override def comparator(s1: Schedulable, s2: Schedulable): Boolean = {
-        val priority1 = s1.priority
+        val priority1 = s1.priority  //priority 其实就是 job 的 id
         val priority2 = s2.priority
         var res = math.signum(priority1 - priority2)
         if (res == 0) {

@@ -17,6 +17,7 @@
 
 package org.apache.spark.scheduler.cluster
 
+import java.nio.ByteBuffer
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -29,6 +30,7 @@ import org.apache.spark.scheduler.cluster.CoarseGrainedSchedulerBackend.ENDPOINT
 import org.apache.spark.util.{RpcUtils, SerializableBuffer, ThreadUtils, Utils}
 import org.apache.spark.{ExecutorAllocationClient, SparkEnv, SparkException, TaskState}
 
+import scala.collection.immutable
 import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
 import scala.concurrent.Future
 
@@ -213,10 +215,13 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
         // Make fake resource offers on all executors
         private def makeOffers() {
             // Filter out executors under killing
-            val activeExecutors = executorDataMap.filterKeys(executorIsAlive)
-            val workOffers = activeExecutors.map { case (id, executorData) =>
+            // 过滤出 Active 的 Executor
+            val activeExecutors: collection.Map[String, ExecutorData] = executorDataMap.filterKeys(executorIsAlive)
+            // 封装资源
+            val workOffers: immutable.IndexedSeq[WorkerOffer] = activeExecutors.map { case (id, executorData) =>
                 new WorkerOffer(id, executorData.executorHost, executorData.freeCores)
             }.toIndexedSeq
+            // 启动任务
             launchTasks(scheduler.resourceOffers(workOffers))
         }
 
@@ -248,7 +253,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
         private def launchTasks(tasks: Seq[Seq[TaskDescription]]) {
             for (task <- tasks.flatten) {
                 // 序列化任务
-                val serializedTask = ser.serialize(task)
+                val serializedTask: ByteBuffer = ser.serialize(task)
                 if (serializedTask.limit >= maxRpcMessageSize) {
                     scheduler.taskIdToTaskSetManager.get(task.taskId).foreach { taskSetMgr =>
                         try {

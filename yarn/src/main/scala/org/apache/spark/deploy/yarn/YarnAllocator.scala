@@ -434,7 +434,7 @@ private[yarn] class YarnAllocator(
                 internalReleaseContainer(container)
             }
         }
-
+        // 核心代码
         runAllocatedContainers(containersToUse)
 
         logInfo("Received %d containers from YARN, launching executors on %d of them."
@@ -479,6 +479,7 @@ private[yarn] class YarnAllocator(
       * Launches executors in the allocated containers.
       */
     private def runAllocatedContainers(containersToUse: ArrayBuffer[Container]): Unit = {
+        // 分别在每个容器上面启动一个 Executor
         for (container <- containersToUse) {
             executorIdCounter += 1
             val executorHostname = container.getNodeId.getHost

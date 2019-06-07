@@ -248,10 +248,11 @@ private[spark] class ApplicationMaster(
                     new ConfigurableCredentialManager(sparkConf, yarnConf).credentialRenewer()
                 credentialRenewer.scheduleLoginFromKeytab()
             }
-
-            if (isClusterMode) {
+            
+            // 关键核心代码
+            if (isClusterMode) {  // cluster 模式
                 runDriver(securityMgr)
-            } else {
+            } else { // client 模式
                 runExecutorLauncher(securityMgr)
             }
         } catch {
@@ -418,7 +419,7 @@ private[spark] class ApplicationMaster(
                     throw new IllegalStateException("SparkContext is null but app is still running!")
                 }
             }
-            // 线程 join: 把userClassThread线程执行完毕之后再继续执行当前线程.
+            // 线程 join: 把 userClassThread 线程执行完毕之后再继续执行当前线程.
             userClassThread.join()
         } catch {
             case e: SparkException if e.getCause().isInstanceOf[TimeoutException] =>
@@ -632,12 +633,14 @@ private[spark] class ApplicationMaster(
         if (args.primaryRFile != null && args.primaryRFile.endsWith(".R")) {
             // TODO(davies): add R dependencies here
         }
+        // 得到用户类的 main 方法
         val mainMethod = userClassLoader.loadClass(args.userClass)
             .getMethod("main", classOf[Array[String]])
 
         val userThread = new Thread {
             override def run() {
                 try {
+                    // 调用用户类的 main 方法
                     mainMethod.invoke(null, userArgs.toArray)
                     finish(FinalApplicationStatus.SUCCEEDED, ApplicationMaster.EXIT_SUCCESS)
                     logDebug("Done running users class")

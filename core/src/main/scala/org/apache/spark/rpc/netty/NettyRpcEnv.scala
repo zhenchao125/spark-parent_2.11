@@ -180,9 +180,11 @@ private[netty] class NettyRpcEnv(
     }
 
     private[netty] def send(message: RequestMessage): Unit = {
+        // 获取接收者地址信息
         val remoteAddr = message.receiver.address
         if (remoteAddr == address) {
             // Message to a local RPC endpoint.
+            // 把消息发送到本地的 RPC 端点  (发送到收件箱)
             try {
                 dispatcher.postOneWayMessage(message)
             } catch {
@@ -190,6 +192,7 @@ private[netty] class NettyRpcEnv(
             }
         } else {
             // Message to a remote RPC endpoint.
+            // 把消息发送到远程的 RPC 端点.  (发送到发件箱)
             postToOutbox(message.receiver, OneWayOutboxMessage(serialize(message)))
         }
     }
@@ -435,7 +438,7 @@ private[netty] object NettyRpcEnv extends Logging {
 private[rpc] class NettyRpcEnvFactory extends RpcEnvFactory with Logging {
 
     def create(config: RpcEnvConfig): RpcEnv = {
-        val sparkConf = config.conf
+        val sparkConf: SparkConf = config.conf
         // Use JavaSerializerInstance in multiple threads is safe. However, if we plan to support
         // KryoSerializer in future, we have to use ThreadLocal to store SerializerInstance
         // 用于 Rpc传输对象时的序列化

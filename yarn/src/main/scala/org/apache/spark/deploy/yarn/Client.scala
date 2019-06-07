@@ -183,7 +183,8 @@ private[spark] class Client(
 
             // Finally, submit and monitor the application
             logInfo(s"Submitting application $appId to ResourceManager")
-            // 提交应用给 ResourceManager
+            // 提交应用给 ResourceManager 启动 ApplicationMaster
+            // org.apache.spark.deploy.yarn.ApplicationMaster
             yarnClient.submitApplication(appContext)
             appId
         } catch {
