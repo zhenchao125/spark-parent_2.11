@@ -184,7 +184,7 @@ private[deploy] class Worker(
         logInfo("Spark home: " + sparkHome)
         // 创建工作目录
         createWorkDir()
-        // 启动 shuffle 服务
+        // 如果可以用, 则启动 shuffle 服务
         shuffleService.startIfEnabled()
         // Worker的 WebUI
         webUi = new WorkerWebUI(this, workDir, webUiPort)

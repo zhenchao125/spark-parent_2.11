@@ -399,7 +399,7 @@ private[deploy] class Master(
         id, workerHost, workerPort, workerRef, cores, memory, workerWebUiUrl) =>
             logInfo("Registering worker %s:%d with %d cores, %s RAM".format(
                 workerHost, workerPort, cores, Utils.megabytesToString(memory)))
-            if (state == RecoveryState.STANDBY) {
+            if (state == RecoveryState.STANDBY) { // state 为 Master 当前的状态
                 // 给发送者回应消息.  对方的 receive 方法会收到这个信息
                 context.reply(MasterInStandby)
             } else if (idToWorker.contains(id)) { // 如果要注册的 Worker 已经存在
@@ -759,6 +759,7 @@ private[deploy] class Master(
     private def registerWorker(worker: WorkerInfo): Boolean = {
         // There may be one or more refs to dead workers on this same node (w/ different ID's),
         // remove them.
+        // 移除那些同一个节点上已经 dead 的 work
         workers.filter { w =>
             (w.host == worker.host && w.port == worker.port) && (w.state == WorkerState.DEAD)
         }.foreach { w =>
@@ -987,7 +988,7 @@ private[deploy] class Master(
             if (worker.state != WorkerState.DEAD) {
                 logWarning("Removing %s because we got no heartbeat in %d seconds".format(
                     worker.id, WORKER_TIMEOUT_MS / 1000))
-                removeWorker(worker)  //
+                removeWorker(worker) //
             } else {
                 if (worker.lastHeartbeat < currentTime - ((REAPER_ITERATIONS + 1) * WORKER_TIMEOUT_MS)) {
                     workers -= worker // we've seen this DEAD worker in the UI, etc. for long enough; cull it
@@ -1068,8 +1069,9 @@ private[deploy] object Master extends Logging {
                                   webUiPort: Int,
                                   conf: SparkConf): (RpcEnv, Int, Option[Int]) = {
         val securityMgr = new SecurityManager(conf)
-        // 创建 Master 端的 RpcEnv 环境   参数: sparkMaster hadoop201 7077 conf securityMgr
-        // 返回的实际类型是: NettyRpcEnv
+        // 创建 Master 端的 RpcEnv 环境, 并启动 RpcEnv
+        // 参数: sparkMaster hadoop201 7077 conf securityMgr
+        // 返回值  的实际类型是: NettyRpcEnv
         val rpcEnv: RpcEnv = RpcEnv.create(SYSTEM_NAME, host, port, conf, securityMgr)
         // 创建 Master对象, 该对象就是一个 RpcEndpoint, 在 RpcEnv 中注册这个 RpcEndpoint
         // 返回该 RpcEndpoint 的引用, 使用该引用来接收信息和发送信息

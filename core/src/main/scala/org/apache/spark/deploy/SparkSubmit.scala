@@ -135,7 +135,7 @@ object SparkSubmit {
         // Action should be SUBMIT unless otherwise specified
         //action = Option(action).getOrElse(SUBMIT)
         appArgs.action match {
-            // 如果没有指定 action, 则 action 的默认值是:
+            // 如果没有指定 action, 则 action 的默认值是: Submit
             case SparkSubmitAction.SUBMIT => submit(appArgs)
             case SparkSubmitAction.KILL => kill(appArgs)
             case SparkSubmitAction.REQUEST_STATUS => requestStatus(appArgs)
