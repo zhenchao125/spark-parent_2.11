@@ -162,10 +162,12 @@ object SparkSubmit {
     /**
       * Submit the application using the provided parameters.
       * 使用提供的参数提交应用程序
+      *
       * 有 2 步:
-      * 1. 准备启动环境. 根据集群管理器和部署模式为 child main class 设置正确的 classpath,
+      * 1. 准备启动环境. 根据集群管理器和部署模式为 "child main class" 设置正确的 classpath,
       * 系统属性,应用参数
       * 2. 使用启动环境调用 child main class 的 main 方法
+      *
       * This runs in two steps. First, we prepare the launch environment by setting up
       * the appropriate classpath, system properties, and application arguments for
       * running the child main class based on the cluster manager and the deploy mode.
@@ -176,7 +178,7 @@ object SparkSubmit {
       */
     @tailrec
     private def submit(args: SparkSubmitArguments): Unit = {
-        // 准备提交环境
+        // 准备提交环境  childMainClass = org.apache.spark.deploy.yarn.Client
         val (childArgs, childClasspath, sysProps, childMainClass) = prepareSubmitEnvironment(args)
         
         def doRunMain(): Unit = {

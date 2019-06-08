@@ -993,10 +993,11 @@ private[spark] class Client(
             } else {
                 Nil
             }
+        // 核心代码: 确定 ApplicationMaster 类
         val amClass =
-            if (isClusterMode) {
+            if (isClusterMode) { // 如果是 cluster 模式
                 Utils.classForName("org.apache.spark.deploy.yarn.ApplicationMaster").getName
-            } else {
+            } else { // 如果是 client 模式
                 Utils.classForName("org.apache.spark.deploy.yarn.ExecutorLauncher").getName
             }
         if (args.primaryRFile != null && args.primaryRFile.endsWith(".R")) {
