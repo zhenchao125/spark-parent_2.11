@@ -275,7 +275,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
 
                     logDebug(s"Launching task ${task.taskId} on executor id: ${task.executorId} hostname: " +
                         s"${executorData.executorHost}.")
-                    // // 发送任务到 Executor.   CoarseGrainedExecutorBackend 会收到消息
+                    // // 发送任务到 Executor.   CoarseGrainedExecutorBackend 会收到消息 1
                     executorData.executorEndpoint.send(LaunchTask(new SerializableBuffer(serializedTask)))
                 }
             }
