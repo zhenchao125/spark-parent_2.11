@@ -852,7 +852,6 @@ class DAGScheduler(
             // New stage creation may throw an exception if, for example, jobs are run on a
             // HadoopRDD whose underlying HDFS files have been deleted.
             // Stage 的划分是从后向前推断的, 所以先创建最后的阶段
-            
             finalStage = createResultStage(finalRDD, func, partitions, jobId, callSite)
         } catch {
             case e: Exception =>

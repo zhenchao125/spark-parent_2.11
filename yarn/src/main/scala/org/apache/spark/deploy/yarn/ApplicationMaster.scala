@@ -636,7 +636,8 @@ private[spark] class ApplicationMaster(
         // 得到用户类的 main 方法
         val mainMethod = userClassLoader.loadClass(args.userClass)
             .getMethod("main", classOf[Array[String]])
-
+        
+        // 在子线程内执行用户类的 main 方法
         val userThread = new Thread {
             override def run() {
                 try {
@@ -770,7 +771,7 @@ object ApplicationMaster extends Logging {
             }
         }
         SparkHadoopUtil.get.runAsSparkUser { () =>
-            // 构建 ApplicationMaster 实例  ApplicationMaster 需要与 RM通讯
+            // 构建 ApplicationMaster 实例,   ApplicationMaster 需要与 RM 通讯
             master = new ApplicationMaster(amArgs, new YarnRMClient)
             // 运行 ApplicationMaster 的 run 方法, run 方法结束之后, 结束 ApplicationMaster 进程
             System.exit(master.run())

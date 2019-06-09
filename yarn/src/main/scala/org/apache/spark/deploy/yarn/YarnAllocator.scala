@@ -434,7 +434,7 @@ private[yarn] class YarnAllocator(
                 internalReleaseContainer(container)
             }
         }
-        // 核心代码
+        // 核心代码: 运行分配的容器
         runAllocatedContainers(containersToUse)
 
         logInfo("Received %d containers from YARN, launching executors on %d of them."

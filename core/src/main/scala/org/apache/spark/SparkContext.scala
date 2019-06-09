@@ -83,6 +83,7 @@ class SparkContext(config: SparkConf) extends Logging {
     // NOTE: this must be placed at the beginning of the SparkContext constructor.
     SparkContext.markPartiallyConstructed(this, allowMultipleContexts)
     
+    // 启动时间
     val startTime = System.currentTimeMillis()
     
     private[spark] val stopped: AtomicBoolean = new AtomicBoolean(false)
@@ -515,11 +516,11 @@ class SparkContext(config: SparkConf) extends Logging {
         _heartbeatReceiver = env.rpcEnv.setupEndpoint(
             HeartbeatReceiver.ENDPOINT_NAME, new HeartbeatReceiver(this))
         
-        // 创建 TaskSheduler
+        // 核心代码: 创建 TaskScheduler
         val (sched, ts): (SchedulerBackend, TaskScheduler) = SparkContext.createTaskScheduler(this, master, deployMode)
         _schedulerBackend = sched
         _taskScheduler = ts
-        // 创建 DAGScheduler.
+        // 创建 DAGScheduler
         _dagScheduler = new DAGScheduler(this)
         _heartbeatReceiver.ask[Boolean](TaskSchedulerIsSet)
         
@@ -2508,6 +2509,9 @@ object SparkContext extends Logging {
     /**
       * Create a task scheduler based on a given master URL.
       * Return a 2-tuple of the scheduler backend and the task scheduler.
+      *
+      * 创建基于 master URL 的 task scheduler
+      * 返回一个两个元素的元组: scheduler backend 和 task scheduler
       */
     private def createTaskScheduler(
                                        sc: SparkContext,
@@ -2577,17 +2581,17 @@ object SparkContext extends Logging {
                 (backend, scheduler)
             
             case masterUrl =>
-                // 获取集群管理器
+                // 获取外部集群管理器
                 val cm: ExternalClusterManager = getClusterManager(masterUrl) match {
                     case Some(clusterMgr) => clusterMgr
                     case None => throw new SparkException("Could not parse Master URL: '" + master + "'")
                 }
                 try {
-                    // 创建 TaskScheduler
+                    // 创建 TaskScheduler. 实际类型是: YarnScheduler
                     val scheduler: TaskScheduler = cm.createTaskScheduler(sc, masterUrl)
-                    // 创建 SchedulerBackend
+                    // 创建 SchedulerBackend. 实际类型是: YarnClientSchedulerBackend
                     val backend: SchedulerBackend = cm.createSchedulerBackend(sc, masterUrl, scheduler)
-                    // 初始化 TaskScheduler和SchedulerBackend
+                    // 初始化 TaskScheduler 和 SchedulerBackend
                     cm.initialize(scheduler, backend)
                     // 返回 SchedulerBackend 和 TaskScheduler
                     (backend, scheduler)

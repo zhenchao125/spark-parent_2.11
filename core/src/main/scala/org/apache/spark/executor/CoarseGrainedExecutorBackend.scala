@@ -59,7 +59,7 @@ private[spark] class CoarseGrainedExecutorBackend(
         rpcEnv.asyncSetupEndpointRefByURI(driverUrl).flatMap { ref =>
             // This is a very fast action so we can use "ThreadUtils.sameThread"
             driver = Some(ref)
-            // 向驱动注册 Executor
+            //  向驱动注册 Executor
             //  CoarseGrainedSchedulerBackend
             ref.ask[Boolean](RegisterExecutor(executorId, self, hostname, cores, extractLogUrls))
         }(ThreadUtils.sameThread).onComplete {

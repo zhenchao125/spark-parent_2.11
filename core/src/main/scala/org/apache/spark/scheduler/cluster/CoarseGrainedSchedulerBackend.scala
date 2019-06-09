@@ -179,6 +179,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
                             logDebug(s"Decremented number of pending executors ($numPendingExecutors left)")
                         }
                     }
+                    // 给 Executor 发送注册成功的消息
                     executorRef.send(RegisteredExecutor)
                     // Note: some tests expect the reply to come after we put the executor in the map
                     context.reply(true)
