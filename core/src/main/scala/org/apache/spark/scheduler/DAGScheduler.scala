@@ -358,7 +358,7 @@ class DAGScheduler(
                                      partitions: Array[Int],
                                      jobId: Int,
                                      callSite: CallSite): ResultStage = {
-        // 1. 获取所有父 Stage 的列表
+        // 1. 获取当前 RDD 所有父 Stage 的列表
         val parents: List[Stage] = getOrCreateParentStages(rdd, jobId)
         // 2. 给 resultStage 生成一个 id
         val id = nextStageId.getAndIncrement()
@@ -366,7 +366,9 @@ class DAGScheduler(
         val stage: ResultStage = new ResultStage(id, rdd, func, partitions, parents, jobId, callSite)
         // 4. stageId 和 ResultStage 做映射
         stageIdToStage(id) = stage
+        // 5. Job 的身份表示与 ResultStage 及其所有祖先的映射关系
         updateJobIdStageIdMaps(jobId, stage)
+        // 6. 返回 ResultStage 对象
         stage
     }
     
@@ -876,6 +878,7 @@ class DAGScheduler(
         val stageInfos = stageIds.flatMap(id => stageIdToStage.get(id).map(_.latestInfo))
         listenerBus.post(
             SparkListenerJobStart(job.jobId, jobSubmissionTime, stageInfos, properties))
+        // 提交 finaStage. 在内部会递归的提交那些没有提交的父 stage.
         submitStage(finalStage)
     }
     
@@ -922,21 +925,26 @@ class DAGScheduler(
         }
     }
     
-    /** Submits stage, but first recursively submits any missing parents. */
+    /** Submits stage, but first recursively submits any missing parents.
+      *
+      * 提交 stage, 但是会递归的提交没有添加的父 stage
+      * */
     private def submitStage(stage: Stage) {
         val jobId: Option[Int] = activeJobForStage(stage)
         if (jobId.isDefined) {
             logDebug("submitStage(" + stage + ")")
             if (!waitingStages(stage) && !runningStages(stage) && !failedStages(stage)) {
+                // 1. 找到没有提交的父 stage
                 val missing: List[Stage] = getMissingParentStages(stage).sortBy(_.id)
                 logDebug("missing: " + missing)
-                if (missing.isEmpty) {
+                if (missing.isEmpty) { // 2. 如果为空, 则从当前 stage 直接提交
                     logInfo("Submitting " + stage + " (" + stage.rdd + "), which has no missing parents")
                     submitMissingTasks(stage, jobId.get)
-                } else {
+                } else { // 3. 如果不为空, 则递归的向上查找
                     for (parent <- missing) {
                         submitStage(parent)
                     }
+                    // 4. 当前 stage 加入到等待提交的 stage 对列中
                     waitingStages += stage
                 }
             }
@@ -945,13 +953,16 @@ class DAGScheduler(
         }
     }
     
-    /** Called when stage's parents are available and we can now do its task. */
+    /** Called when stage's parents are available and we can now do its task.
+      * 主要是做 task 的划分
+      * */
     private def submitMissingTasks(stage: Stage, jobId: Int) {
         logDebug("submitMissingTasks(" + stage + ")")
         // Get our pending tasks and remember them in our pendingTasks entry
         stage.pendingPartitions.clear()
         
         // First figure out the indexes of partition ids to compute.
+        // 首先计算出来需要计算的所有的分区的 id
         val partitionsToCompute: Seq[Int] = stage.findMissingPartitions()
         
         // Use the scheduling pool, job group, description, etc. from an ActiveJob associated
@@ -1025,6 +1036,7 @@ class DAGScheduler(
                 return
         }
         
+        // 根据 Stage 的不同, 划分 task
         val tasks: Seq[Task[_]] = try {
             stage match {
                 case stage: ShuffleMapStage =>
@@ -1057,6 +1069,7 @@ class DAGScheduler(
             logInfo("Submitting " + tasks.size + " missing tasks from " + stage + " (" + stage.rdd + ")")
             stage.pendingPartitions ++= tasks.map(_.partitionId)
             logDebug("New pending partitions: " + stage.pendingPartitions)
+            // 把 tasks 封装到 TaskSet 中, 然后交给 taskScheduler 来提交
             taskScheduler.submitTasks(new TaskSet(
                 tasks.toArray, stage.id, stage.latestInfo.attemptId, jobId, properties))
             stage.latestInfo.submissionTime = Some(clock.getTimeMillis())

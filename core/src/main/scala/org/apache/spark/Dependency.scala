@@ -30,7 +30,7 @@ import scala.reflect.ClassTag
   */
 @DeveloperApi
 abstract class Dependency[T] extends Serializable {
-    // 当前 RDD
+    // 被别人依赖的 RDD
     def rdd: RDD[T]
 }
 
