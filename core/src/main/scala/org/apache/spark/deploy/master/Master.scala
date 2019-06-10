@@ -18,7 +18,7 @@
 package org.apache.spark.deploy.master
 
 import java.text.SimpleDateFormat
-import java.util.concurrent.{ScheduledFuture, TimeUnit}
+import java.util.concurrent.{ScheduledExecutorService, ScheduledFuture, TimeUnit}
 import java.util.{Date, Locale}
 
 import org.apache.spark.deploy.DeployMessages._
@@ -45,7 +45,7 @@ private[deploy] class Master(
                                 val conf: SparkConf)
     extends ThreadSafeRpcEndpoint with Logging with LeaderElectable {
     
-    private val forwardMessageThread =
+    private val forwardMessageThread: ScheduledExecutorService =
         ThreadUtils.newDaemonSingleThreadScheduledExecutor("master-forward-message-thread")
     
     private val hadoopConf = SparkHadoopUtil.get.newConfiguration(conf)
@@ -780,6 +780,7 @@ private[deploy] class Master(
         }
         
         workers += worker
+        //
         idToWorker(worker.id) = worker
         addressToWorker(workerAddress) = worker
         if (reverseProxy) {

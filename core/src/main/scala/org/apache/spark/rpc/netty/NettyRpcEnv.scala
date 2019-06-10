@@ -436,7 +436,9 @@ private[netty] object NettyRpcEnv extends Logging {
 }
 
 private[rpc] class NettyRpcEnvFactory extends RpcEnvFactory with Logging {
-
+    /*
+    创建 NettyRpcEnv, 并且启动为后台程序
+     */
     def create(config: RpcEnvConfig): RpcEnv = {
         val sparkConf: SparkConf = config.conf
         // Use JavaSerializerInstance in multiple threads is safe. However, if we plan to support
