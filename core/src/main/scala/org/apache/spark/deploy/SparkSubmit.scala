@@ -178,7 +178,7 @@ object SparkSubmit {
       */
     @tailrec
     private def submit(args: SparkSubmitArguments): Unit = {
-        // 准备提交环境  childMainClass = org.apache.spark.deploy.yarn.Client
+        // 准备提交环境 yarn-cluster:  childMainClass = org.apache.spark.deploy.yarn.Client
         val (childArgs, childClasspath, sysProps, childMainClass) = prepareSubmitEnvironment(args)
         
         def doRunMain(): Unit = {
@@ -739,7 +739,7 @@ object SparkSubmit {
         
         try {
             // 使用反射的方式加载 childMainClass = "org.apache.spark.deploy.yarn.Client"
-            mainClass = Utils.classForName(childMainClass)
+            mainClass = Utils.classForName(childMainClass)  //  在 client模式下, 直接指向用户的main方法
         } catch {
             case e: ClassNotFoundException =>
                 e.printStackTrace(printStream)

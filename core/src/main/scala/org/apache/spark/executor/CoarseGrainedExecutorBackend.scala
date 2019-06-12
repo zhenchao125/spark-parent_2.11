@@ -83,7 +83,7 @@ private[spark] class CoarseGrainedExecutorBackend(
         case RegisteredExecutor =>
             logInfo("Successfully registered with driver")
             try {
-                // 创建 Executor 对象
+                // 创建 Executor 对象   向driver注册成功之后
                 executor = new Executor(executorId, hostname, env, userClassPath, isLocal = false)
             } catch {
                 case NonFatal(e) =>

@@ -176,7 +176,7 @@ private[spark] class Client(
             verifyClusterResources(newAppResponse)
 
             // Set up the appropriate contexts to launch our AM
-            // 设置正确的上下文对象来启动 ApplicationMaster
+            // 设置正确的上下文对象来启动 ApplicationMaster  org.apache.spark.deploy.yarn.ApplicationMaster
             val containerContext = createContainerLaunchContext(newAppResponse)
             // 创建应用程序提交任务上下文
             val appContext = createApplicationSubmissionContext(newApp, containerContext)

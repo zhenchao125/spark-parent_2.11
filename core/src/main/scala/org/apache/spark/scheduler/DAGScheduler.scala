@@ -394,16 +394,16 @@ class DAGScheduler(
         val waitingForVisit = new Stack[RDD[_]]
         waitingForVisit.push(rdd)
         while (waitingForVisit.nonEmpty) {
-            val toVisit = waitingForVisit.pop()
-            if (!visited(toVisit)) {
-                visited += toVisit
-                getShuffleDependencies(toVisit).foreach { shuffleDep =>
-                    if (!shuffleIdToMapStage.contains(shuffleDep.shuffleId)) {
-                        ancestors.push(shuffleDep)
-                        waitingForVisit.push(shuffleDep.rdd)
-                    } // Otherwise, the dependency and its ancestors have already been registered.
+                val toVisit = waitingForVisit.pop()
+                if (!visited(toVisit)) {
+                    visited += toVisit
+                    getShuffleDependencies(toVisit).foreach { shuffleDep =>
+                        if (!shuffleIdToMapStage.contains(shuffleDep.shuffleId)) {
+                            ancestors.push(shuffleDep)
+                            waitingForVisit.push(shuffleDep.rdd)
+                        } // Otherwise, the dependency and its ancestors have already been registered.
+                    }
                 }
-            }
         }
         ancestors
     }
@@ -419,13 +419,15 @@ class DAGScheduler(
       * calling this function with rdd C will only return the B <-- C dependency.
       *
       * This function is scheduler-visible for the purpose of unit testing.
+      *
+      * 直到找到宽依赖才会停下来
       */
     private[scheduler] def getShuffleDependencies(
                                                      rdd: RDD[_]): HashSet[ShuffleDependency[_, _, _]] = {
         // 存储所有的宽依赖
         val parents = new HashSet[ShuffleDependency[_, _, _]]
-        val visited = new HashSet[RDD[_]]
-        val waitingForVisit = new Stack[RDD[_]]
+        val visited = new HashSet[RDD[_]]   // 记录以及查找过的
+        val waitingForVisit = new Stack[RDD[_]] // 记录待查找的
         waitingForVisit.push(rdd)
         while (waitingForVisit.nonEmpty) {
             val toVisit: RDD[_] = waitingForVisit.pop()
@@ -848,7 +850,7 @@ class DAGScheduler(
                                               callSite: CallSite,
                                               listener: JobListener,
                                               properties: Properties) {
-        
+        // 表示最后一个阶段
         var finalStage: ResultStage = null
         try {
             // New stage creation may throw an exception if, for example, jobs are run on a

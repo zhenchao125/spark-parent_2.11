@@ -265,7 +265,7 @@ private[yarn] class YarnAllocator(
                     allocatedContainers.size,
                     numExecutorsRunning,
                     allocateResponse.getAvailableResources))
-
+            // 处理分配到的容器
             handleAllocatedContainers(allocatedContainers.asScala)
         }
 
@@ -479,7 +479,7 @@ private[yarn] class YarnAllocator(
       * Launches executors in the allocated containers.
       */
     private def runAllocatedContainers(containersToUse: ArrayBuffer[Container]): Unit = {
-        // 分别在每个容器上面启动一个 Executor
+        // 分别在每个容器上面启动一个 Executor 进程  (CoarseGrainedExecutorBackend)
         for (container <- containersToUse) {
             executorIdCounter += 1
             val executorHostname = container.getNodeId.getHost
@@ -501,6 +501,7 @@ private[yarn] class YarnAllocator(
 
             if (numExecutorsRunning < targetNumExecutors) {
                 if (launchContainers) {
+                    // 启动
                     launcherPool.execute(new Runnable {
                         override def run(): Unit = {
                             try {

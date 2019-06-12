@@ -76,6 +76,7 @@ private[spark] abstract class Task[T](
                      attemptNumber: Int,
                      metricsSystem: MetricsSystem): T = {
         SparkEnv.get.blockManager.registerTask(taskAttemptId)
+        // 创建 Task 上下文对象
         context = new TaskContextImpl(
             stageId,
             partitionId,
@@ -96,6 +97,7 @@ private[spark] abstract class Task[T](
             Option(taskAttemptId), Option(attemptNumber)).setCurrentContext()
 
         try {
+            // 开始运行 task   核心代码
             runTask(context)
         } catch {
             case e: Throwable =>
@@ -135,7 +137,7 @@ private[spark] abstract class Task[T](
     def setTaskMemoryManager(taskMemoryManager: TaskMemoryManager): Unit = {
         this.taskMemoryManager = taskMemoryManager
     }
-
+    
     def runTask(context: TaskContext): T
 
     def preferredLocations: Seq[TaskLocation] = Nil

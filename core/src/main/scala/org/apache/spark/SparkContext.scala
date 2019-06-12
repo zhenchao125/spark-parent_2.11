@@ -520,7 +520,7 @@ class SparkContext(config: SparkConf) extends Logging {
         val (sched, ts): (SchedulerBackend, TaskScheduler) = SparkContext.createTaskScheduler(this, master, deployMode)
         _schedulerBackend = sched
         _taskScheduler = ts
-        // 创建 DAGScheduler
+        // 创建 DAGScheduler  stage的划分, 任务的划分, 把任务封装成 TaskSet 交给TaskScheduler调度
         _dagScheduler = new DAGScheduler(this)
         _heartbeatReceiver.ask[Boolean](TaskSchedulerIsSet)
         

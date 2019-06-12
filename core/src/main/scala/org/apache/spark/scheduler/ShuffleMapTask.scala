@@ -64,18 +64,18 @@ private[spark] class ShuffleMapTask(
     extends Task[MapStatus](stageId, stageAttemptId, partition.index, metrics, localProperties, jobId,
         appId, appAttemptId)
         with Logging {
-
+    
     /** A constructor used only in test suites. This does not require passing in an RDD. */
     def this(partitionId: Int) {
         this(0, 0, null, new Partition {
             override def index: Int = 0
         }, null, null, new Properties)
     }
-
+    
     @transient private val preferredLocs: Seq[TaskLocation] = {
         if (locs == null) Nil else locs.toSet.toSeq
     }
-
+    
     override def runTask(context: TaskContext): MapStatus = {
         // Deserialize the RDD using the broadcast variable.
         val threadMXBean = ManagementFactory.getThreadMXBean
@@ -90,11 +90,13 @@ private[spark] class ShuffleMapTask(
         _executorDeserializeCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
             threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime
         } else 0L
-
+        // 核心代码:  ShuffleWriter负责写需要 shuffle 的数据
         var writer: ShuffleWriter[Any, Any] = null
         try {
             val manager = SparkEnv.get.shuffleManager
+            // 获取到 ShuffleWriter 对象
             writer = manager.getWriter[Any, Any](dep.shuffleHandle, partitionId, context)
+            // 写出 RDD 中的数据.  然后reduce阶段的task去读
             writer.write(rdd.iterator(partition, context).asInstanceOf[Iterator[_ <: Product2[Any, Any]]])
             writer.stop(success = true).get
         } catch {
@@ -110,8 +112,8 @@ private[spark] class ShuffleMapTask(
                 throw e
         }
     }
-
+    
     override def preferredLocations: Seq[TaskLocation] = preferredLocs
-
+    
     override def toString: String = "ShuffleMapTask(%d, %d)".format(stageId, partitionId)
 }

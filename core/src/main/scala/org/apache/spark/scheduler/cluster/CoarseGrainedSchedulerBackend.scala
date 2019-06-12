@@ -169,6 +169,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
                         cores, cores, logUrls)
                     // This must be synchronized because variables mutated
                     // in this block are read when requesting executors
+                    // synchronized(锁){}
                     CoarseGrainedSchedulerBackend.this.synchronized {
                         executorDataMap.put(executorId, data)
                         if (currentExecutorIdCounter < executorId.toInt) {

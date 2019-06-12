@@ -152,7 +152,7 @@ private[spark] class TaskSchedulerImpl(
     def newTaskId(): Long = nextTaskId.getAndIncrement()
     
     override def start() {
-        backend.start()
+        backend.start()  // 启动 backend (核心代码)
 
         if (!isLocal && conf.getBoolean("spark.speculation", false)) {
             logInfo("Starting speculative execution thread")
@@ -172,7 +172,7 @@ private[spark] class TaskSchedulerImpl(
         val tasks = taskSet.tasks
         logInfo("Adding task set " + taskSet.id + " with " + tasks.length + " tasks")
         this.synchronized {
-            // 创建 TaskManger 对象. 用来追踪每个任务   每个 stage 一个 TaskSetManager
+            // 创建 TaskSetManger 对象. 用来追踪每个任务   每个 stage 对应一个 TaskSetManager
             val manager: TaskSetManager = createTaskSetManager(taskSet, maxTaskFailures)
             val stage = taskSet.stageId
             val stageTaskSets =

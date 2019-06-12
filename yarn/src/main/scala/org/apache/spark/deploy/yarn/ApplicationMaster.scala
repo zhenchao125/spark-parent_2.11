@@ -420,7 +420,7 @@ private[spark] class ApplicationMaster(
                 }
             }
             // 线程 join: 把 userClassThread 线程执行完毕之后再继续执行当前线程.
-            userClassThread.join()
+            userClassThread.join()  // yield
         } catch {
             case e: SparkException if e.getCause().isInstanceOf[TimeoutException] =>
                 logError(
@@ -430,6 +430,7 @@ private[spark] class ApplicationMaster(
                     ApplicationMaster.EXIT_SC_NOT_INITED,
                     "Timed out waiting for SparkContext.")
         }
+        
     }
 
     private def runExecutorLauncher(securityMgr: SecurityManager): Unit = {
