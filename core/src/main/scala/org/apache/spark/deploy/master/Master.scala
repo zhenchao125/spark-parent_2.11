@@ -305,7 +305,7 @@ private[deploy] class Master(
         case Heartbeat(workerId, worker) =>
             idToWorker.get(workerId) match {
                 case Some(workerInfo) =>
-                    // 记录该 Worker 的最新心跳
+                    // 记录该 Worker 的最新心跳   每 15秒更新一次
                     workerInfo.lastHeartbeat = System.currentTimeMillis()
                 case None =>
                     if (workers.map(_.id).contains(workerId)) {

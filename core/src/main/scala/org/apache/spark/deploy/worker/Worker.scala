@@ -737,7 +737,7 @@ private[deploy] object Worker extends Logging {
         val securityMgr = new SecurityManager(conf)
         // 创建 RpcEnv 实例  参数: "sparkWorker", "hadoop201", 8081, conf, securityMgr
         val rpcEnv = RpcEnv.create(systemName, host, port, conf, securityMgr)
-        // 根据传入的 masterUrls 得到 masterAddresses.  就是从命令行中传递过来的 Master 地址
+        // 根据传入的 masterUrls 得到 masterAddresses.  就是从命令行中传递过来的 Master 地址  spark://hadoop201:7077
         val masterAddresses = masterUrls.map(RpcAddress.fromSparkURL(_))
         // 最终实例化 Worker 得到 Worker 的 RpcEndpoint
         rpcEnv.setupEndpoint(ENDPOINT_NAME, new Worker(rpcEnv, webUiPort, cores, memory,

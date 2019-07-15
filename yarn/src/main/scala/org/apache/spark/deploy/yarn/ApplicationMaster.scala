@@ -55,7 +55,7 @@ private[spark] class ApplicationMaster(
     // TODO: Currently, task to container is computed once (TaskSetManager) - which need not be
     // optimal as more containers are available. Might need to handle this better.
 
-    private val sparkConf = new SparkConf()
+       private val sparkConf = new SparkConf()
     private val yarnConf: YarnConfiguration = SparkHadoopUtil.get.newConfiguration(sparkConf)
         .asInstanceOf[YarnConfiguration]
     private val isClusterMode = args.userClass != null
@@ -420,7 +420,7 @@ private[spark] class ApplicationMaster(
                 }
             }
             // 线程 join: 把 userClassThread 线程执行完毕之后再继续执行当前线程.
-            userClassThread.join()  // yield
+            userClassThread.join()  // yield 礼让
         } catch {
             case e: SparkException if e.getCause().isInstanceOf[TimeoutException] =>
                 logError(

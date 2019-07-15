@@ -88,6 +88,7 @@ private[spark] abstract class RpcEnv(conf: SparkConf) {
       * Register a [[RpcEndpoint]] with a name and return its [[RpcEndpointRef]]. [[RpcEnv]] does not
       * guarantee thread-safety.
       */
+    
     def setupEndpoint(name: String, endpoint: RpcEndpoint): RpcEndpointRef
 
     /**

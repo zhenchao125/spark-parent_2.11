@@ -179,6 +179,8 @@ object SparkSubmit {
     @tailrec
     private def submit(args: SparkSubmitArguments): Unit = {
         // 准备提交环境 yarn-cluster:  childMainClass = org.apache.spark.deploy.yarn.Client
+        
+        // 当是client: childMainClass = args.mainClass
         val (childArgs, childClasspath, sysProps, childMainClass) = prepareSubmitEnvironment(args)
         
         def doRunMain(): Unit = {
@@ -548,14 +550,14 @@ object SparkSubmit {
         // Add the application jar automatically so the user doesn't have to call sc.addJar
         // For YARN cluster mode, the jar is already distributed on each node as "app.jar"
         // For python and R files, the primary resource is already distributed as a regular file
-        if (!isYarnCluster && !args.isPython && !args.isR) {
+       if (!isYarnCluster && !args.isPython && !args.isR) {
             var jars = sysProps.get("spark.jars").map(x => x.split(",").toSeq).getOrElse(Seq.empty)
             if (isUserJar(args.primaryResource)) {
                 jars = jars ++ Seq(args.primaryResource)
             }
             sysProps.put("spark.jars", jars.mkString(","))
         }
-        
+    
         // In standalone cluster mode, use the REST client to submit the application (Spark 1.3+).
         // All Spark parameters are expected to be passed to the client through system properties.
         if (args.isStandaloneCluster) {
@@ -739,7 +741,7 @@ object SparkSubmit {
         
         try {
             // 使用反射的方式加载 childMainClass = "org.apache.spark.deploy.yarn.Client"
-            mainClass = Utils.classForName(childMainClass)  //  在 client模式下, 直接指向用户的main方法
+            mainClass = Utils.classForName(childMainClass)  //  在 client模式下, 直接指向用户的类
         } catch {
             case e: ClassNotFoundException =>
                 e.printStackTrace(printStream)
@@ -766,6 +768,7 @@ object SparkSubmit {
             printWarning("Subclasses of scala.App may not work correctly. Use a main() method instead.")
         }
         // 反射出来 Client 的 main 方法
+        // 如果是 yarn-client 就是反射的用户类的main
         val mainMethod = mainClass.getMethod("main", new Array[String](0).getClass)
         // main 方法必须是静态的
         if (!Modifier.isStatic(mainMethod.getModifiers)) {
