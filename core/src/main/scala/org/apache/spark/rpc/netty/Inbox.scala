@@ -60,29 +60,34 @@ private[netty] class Inbox(
     extends Logging {
     
     inbox => // Give this an alias so we can use it more clearly in closures.
-    
+    // 消息列表
     @GuardedBy("this")
     protected val messages = new java.util.LinkedList[InboxMessage]()
     
     /** True if the inbox (and its associated endpoint) is stopped. */
+    // 停止状态
     @GuardedBy("this")
     private var stopped = false
     
     /** Allow multiple threads to process messages at the same time. */
+    // 是否运行多个线程同时处理message中的消息
     @GuardedBy("this")
     private var enableConcurrent = false
     
     /** The number of threads processing messages for this inbox. */
+    // 激活的线程的数量
     @GuardedBy("this")
     private var numActiveThreads = 0
     
     // OnStart should be the first message to process
-    inbox.synchronized {
+    inbox.synchronized {  // synchronized(锁){}
+        // 在message中放入一个消息 OnStart
         messages.add(OnStart)
     }
     
     /**
       * Process stored messages.
+      * 处理存储的消息
       */
     def process(dispatcher: Dispatcher): Unit = {
         var message: InboxMessage = null
@@ -119,6 +124,7 @@ private[netty] class Inbox(
                         })
                     
                     case OnStart =>
+                        // 调用RpcEndpoint的onStart方法
                         endpoint.onStart()
                         if (!endpoint.isInstanceOf[ThreadSafeRpcEndpoint]) {
                             inbox.synchronized {

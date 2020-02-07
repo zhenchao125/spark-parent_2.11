@@ -31,8 +31,8 @@ private[worker] class WorkerArguments(args: Array[String], conf: SparkConf) {
   var host = Utils.localHostName()
   var port = 0
   var webUiPort = 8081
-  var cores = inferDefaultCores()
-  var memory = inferDefaultMemory()
+  var cores = inferDefaultCores()  // 节点的所有可用cpu核心
+  var memory = inferDefaultMemory()  // math.max(totalMb - 1024, Utils.DEFAULT_DRIVER_MEM_MB)
   var masters: Array[String] = null
   var workDir: String = null
   var propertiesFile: String = null

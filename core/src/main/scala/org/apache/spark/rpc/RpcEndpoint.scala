@@ -47,6 +47,7 @@ private[spark] trait RpcEndpoint {
 
   /**
    * The [[RpcEnv]] that this [[RpcEndpoint]] is registered to.
+    * 当前 RpcEndpoint所属的RpcEnv
    */
   val rpcEnv: RpcEnv
 
@@ -56,6 +57,10 @@ private[spark] trait RpcEndpoint {
    *
    * Note: Because before `onStart`, [[RpcEndpoint]] has not yet been registered and there is not
    * valid [[RpcEndpointRef]] for it. So don't call `self` before `onStart` is called.
+    *
+    * 当前 RpcEndpoint 的RpcEndpointRef.   使用RpcEndpointRef就可以向这个RpcEndpoint发送信息.
+    * self在onStart方法调用成功之后可用, onStop调用之后成为null
+    *
    */
   final def self: RpcEndpointRef = {
     require(rpcEnv != null, "rpcEnv has not been initialized")
@@ -65,6 +70,8 @@ private[spark] trait RpcEndpoint {
   /**
    * Process messages from [[RpcEndpointRef.send]] or [[RpcCallContext.reply)]]. If receiving a
    * unmatched message, [[SparkException]] will be thrown and sent to `onError`.
+    *
+    * 接受消息并处理, 当不需要给客户端回复
    */
   def receive: PartialFunction[Any, Unit] = {
     case _ => throw new SparkException(self + " does not implement 'receive'")
@@ -73,6 +80,9 @@ private[spark] trait RpcEndpoint {
   /**
    * Process messages from [[RpcEndpointRef.ask]]. If receiving a unmatched message,
    * [[SparkException]] will be thrown and sent to `onError`.
+    *
+    * 接收消息并处理, 但需要给客户端回复.
+    * 通过 RpcCallContext 实现回复功能
    */
   def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
     case _ => context.sendFailure(new SparkException(self + " won't reply anything"))
@@ -80,6 +90,7 @@ private[spark] trait RpcEndpoint {
 
   /**
    * Invoked when any exception is thrown during handling messages.
+    * 当处理消息发生异常时调用, 可用对异常进行一些处理
    */
   def onError(cause: Throwable): Unit = {
     // By default, throw e and let RpcEnv handle it
@@ -88,6 +99,7 @@ private[spark] trait RpcEndpoint {
 
   /**
    * Invoked when `remoteAddress` is connected to the current node.
+    * 当客户端与当前节点连接后调用.可用针对连接做一些处理
    */
   def onConnected(remoteAddress: RpcAddress): Unit = {
     // By default, do nothing.
@@ -95,6 +107,7 @@ private[spark] trait RpcEndpoint {
 
   /**
    * Invoked when `remoteAddress` is lost.
+    * 当客户端与当前节点断开连接后调用.可用针对断开连接座一些处理
    */
   def onDisconnected(remoteAddress: RpcAddress): Unit = {
     // By default, do nothing.
@@ -103,6 +116,7 @@ private[spark] trait RpcEndpoint {
   /**
    * Invoked when some network error happens in the connection between the current node and
    * `remoteAddress`.
+    * 当客户端与当前节点的连接发生错误时调用
    */
   def onNetworkError(cause: Throwable, remoteAddress: RpcAddress): Unit = {
     // By default, do nothing.
@@ -110,6 +124,7 @@ private[spark] trait RpcEndpoint {
 
   /**
    * Invoked before [[RpcEndpoint]] starts to handle any message.
+    * 在RpcEndpoint开始处理消息之前调用.做一些准备工作
    */
   def onStart(): Unit = {
     // By default, do nothing.
@@ -118,6 +133,7 @@ private[spark] trait RpcEndpoint {
   /**
    * Invoked when [[RpcEndpoint]] is stopping. `self` will be `null` in this method and you cannot
    * use it to send or ask messages.
+    * 在停止RpcEndpoint时调用, 可用做一些收尾工作
    */
   def onStop(): Unit = {
     // By default, do nothing.

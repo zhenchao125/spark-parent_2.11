@@ -42,6 +42,8 @@ private[spark] case class Heartbeat(
 /**
   * An event that SparkContext uses to notify HeartbeatReceiver that SparkContext.taskScheduler is
   * created.
+  *
+  * 一个事件, SparkContext用来去通知心跳接收器: 任务调度器已经创建成功
   */
 private[spark] case object TaskSchedulerIsSet
 

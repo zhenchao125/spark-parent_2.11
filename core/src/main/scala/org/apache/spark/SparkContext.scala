@@ -448,6 +448,7 @@ class SparkContext(config: SparkConf) extends Logging {
         listenerBus.addListener(jobProgressListener)
         
         // Create the Spark execution environment (cache, map output tracker, etc)
+        // 创建 SparkEnv
         _env = createSparkEnv(_conf, isLocal, listenerBus)
         SparkEnv.set(_env)
         
@@ -488,7 +489,7 @@ class SparkContext(config: SparkConf) extends Logging {
         if (files != null) {
             files.foreach(addFile)
         }
-        // 执行器内存, 默认是 1G
+        // Executor内存, 默认 1G
         _executorMemory = _conf.getOption("spark.executor.memory")
             .orElse(Option(System.getenv("SPARK_EXECUTOR_MEMORY")))
             .orElse(Option(System.getenv("SPARK_MEM"))
@@ -513,10 +514,13 @@ class SparkContext(config: SparkConf) extends Logging {
         
         // We need to register "HeartbeatReceiver" before "createTaskScheduler" because Executor will
         // retrieve "HeartbeatReceiver" in the constructor. (SPARK-6640)
+        // 创建心跳接收器. 因为Executor在构造器中需要使用心跳接收器, 所以需要在创建任务调度器之前先注册心跳接收器
         _heartbeatReceiver = env.rpcEnv.setupEndpoint(
             HeartbeatReceiver.ENDPOINT_NAME, new HeartbeatReceiver(this))
         
-        // 核心代码: 创建 TaskScheduler
+        // 核心代码: 创建 TaskScheduler ->
+        // sched: YarnClientSchedulerBackend
+        // ts: YarnScheduler
         val (sched, ts): (SchedulerBackend, TaskScheduler) = SparkContext.createTaskScheduler(this, master, deployMode)
         _schedulerBackend = sched
         _taskScheduler = ts
@@ -2520,6 +2524,7 @@ object SparkContext extends Logging {
         import SparkMasterRegex._
         
         // When running locally, don't try to re-execute tasks on failure.
+        // local模式下, 任务执行失败的时候, 不会重新执行
         val MAX_LOCAL_TASK_FAILURES = 1
         
         master match {
@@ -2602,10 +2607,11 @@ object SparkContext extends Logging {
                 }
         }
     }
-    
+    // 获取外部的集群管理器
     private def getClusterManager(url: String): Option[ExternalClusterManager] = {
+        // 类加载器
         val loader = Utils.getContextOrSparkClassLoader
-        val serviceLoaders =
+        val serviceLoaders: Iterable[ExternalClusterManager] =
             ServiceLoader.load(classOf[ExternalClusterManager], loader).asScala.filter(_.canCreate(url))
         if (serviceLoaders.size > 1) {
             throw new SparkException(

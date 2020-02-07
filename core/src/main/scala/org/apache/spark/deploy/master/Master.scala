@@ -64,7 +64,7 @@ private[deploy] class Master(
     val idToApp = new HashMap[String, ApplicationInfo]
     private val waitingApps = new ArrayBuffer[ApplicationInfo]
     val apps = new HashSet[ApplicationInfo]
-    
+    // id -> wokerInfo
     private val idToWorker = new HashMap[String, WorkerInfo]
     private val addressToWorker = new HashMap[RpcAddress, WorkerInfo]
     
@@ -123,11 +123,14 @@ private[deploy] class Master(
     private val restServerEnabled = conf.getBoolean("spark.master.rest.enabled", true)
     private var restServer: Option[StandaloneRestServer] = None
     private var restServerBoundPort: Option[Int] = None
-    
+    /*
+    1. master WebUi 服务器
+    2. 周期性的检测work是否超时
+     */
     override def onStart(): Unit = {
         logInfo("Starting Spark master at " + masterUrl)
         logInfo(s"Running Spark version ${org.apache.spark.SPARK_VERSION}")
-        // 创建 WebUI 服务器
+        // 1. 创建 WebUI 服务器
         webUi = new MasterWebUI(this, webUiPort)
         webUi.bind()
         masterWebUiUrl = "http://" + masterPublicAddress + ":" + webUi.boundPort
@@ -136,14 +139,14 @@ private[deploy] class Master(
             logInfo(s"Spark Master is acting as a reverse proxy. Master, Workers and " +
                 s"Applications UIs are available at $masterWebUiUrl")
         }
-        // 按照固定的频率去启动线程来检查 Worker 是否超时. 其实就是给自己发信息: CheckForWorkerTimeOut
+        // 2. 按照固定的频率去启动线程来检查 Worker 是否超时. 其实就是给自己发信息: CheckForWorkerTimeOut
         // 默认是每分钟检查一次.
         checkForWorkerTimeOutTask = forwardMessageThread.scheduleAtFixedRate(new Runnable {
             override def run(): Unit = Utils.tryLogNonFatalError {
-                self.send(CheckForWorkerTimeOut)
+                self.send(CheckForWorkerTimeOut)  // 自己给自己发送信息
             }
         }, 0, WORKER_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        
+    
         if (restServerEnabled) {
             val port = conf.getInt("spark.master.rest.port", 6066)
             restServer = Some(new StandaloneRestServer(address.host, port, conf, self, masterUrl))
@@ -389,6 +392,7 @@ private[deploy] class Master(
             idToApp.get(applicationId).foreach(finishApplication)
         
         case CheckForWorkerTimeOut =>
+            // 移除超时的workers
             timeOutDeadWorkers()
         
     }
@@ -755,7 +759,7 @@ private[deploy] class Master(
         exec.application.driver.send(
             ExecutorAdded(exec.id, worker.id, worker.hostPort, exec.cores, exec.memory))
     }
-    
+    // 保存注册的worker
     private def registerWorker(worker: WorkerInfo): Boolean = {
         // There may be one or more refs to dead workers on this same node (w/ different ID's),
         // remove them.
@@ -779,8 +783,9 @@ private[deploy] class Master(
             }
         }
         
+        // 把新注册的worker存入到workers
         workers += worker
-        //
+        // 把id和worker的映射存入到 HashMap中
         idToWorker(worker.id) = worker
         addressToWorker(workerAddress) = worker
         if (reverseProxy) {
@@ -788,15 +793,19 @@ private[deploy] class Master(
         }
         true
     }
-    
+    // 移除worker
     private def removeWorker(worker: WorkerInfo) {
         logInfo("Removing worker " + worker.id + " on " + worker.host + ":" + worker.port)
+        // 把worker的状态设置为 DEAD
         worker.setState(WorkerState.DEAD)
+        // id->WorkerInfo的映射去除
         idToWorker -= worker.id
+        // address->WorkerInfo的映射去除
         addressToWorker -= worker.endpoint.address
         if (reverseProxy) {
             webUi.removeProxyTargets(worker.id)
         }
+        // 告诉Driver删除相应的Executor
         for (exec <- worker.executors.values) {
             logInfo("Telling app of lost executor: " + exec.id)
             exec.application.driver.send(ExecutorUpdated(
@@ -804,6 +813,7 @@ private[deploy] class Master(
             exec.state = ExecutorState.LOST
             exec.application.removeExecutor(exec)
         }
+        // 重启Driver或者删除Driver
         for (driver <- worker.drivers.values) {
             if (driver.desc.supervise) {
                 logInfo(s"Re-launching ${driver.id}")
@@ -813,6 +823,7 @@ private[deploy] class Master(
                 removeDriver(driver.id, DriverState.ERROR, None)
             }
         }
+        //
         persistenceEngine.removeWorker(worker)
     }
     
@@ -983,14 +994,16 @@ private[deploy] class Master(
         // Copy the workers into an array so we don't modify the hashset while iterating through it
         val currentTime = System.currentTimeMillis()
         //  把超时的 Worker 从 workers 中移除
-        val toRemove = workers.filter(_.lastHeartbeat < currentTime - WORKER_TIMEOUT_MS).toArray
+        val toRemove: Array[WorkerInfo] = workers.filter(_.lastHeartbeat < currentTime - WORKER_TIMEOUT_MS).toArray
         for (worker <- toRemove) {
             // 如果 worker 的状态不是 DEAD
             if (worker.state != WorkerState.DEAD) {
                 logWarning("Removing %s because we got no heartbeat in %d seconds".format(
                     worker.id, WORKER_TIMEOUT_MS / 1000))
-                removeWorker(worker) //
+                // 移除超时的worker
+                removeWorker(worker) // ->
             } else {
+                // 移除worker的尸体
                 if (worker.lastHeartbeat < currentTime - ((REAPER_ITERATIONS + 1) * WORKER_TIMEOUT_MS)) {
                     workers -= worker // we've seen this DEAD worker in the UI, etc. for long enough; cull it
                 }
@@ -1051,9 +1064,10 @@ private[deploy] object Master extends Logging {
         Utils.initDaemon(log)
         val conf = new SparkConf
         // 构建用于参数解析的实例   --host hadoop201 --port 7077 --webui-port 8080
-        val args = new MasterArguments(argStrings, conf)
+        val args: MasterArguments = new MasterArguments(argStrings, conf)
         // 启动 RPC 通信环境和 MasterEndPoint(通信终端)
         val (rpcEnv, _, _): (RpcEnv, Int, Option[Int]) = startRpcEnvAndEndpoint(args.host, args.port, args.webUiPort, conf)
+        // 防止master进程退出
         rpcEnv.awaitTermination()
     }
     
@@ -1069,15 +1083,16 @@ private[deploy] object Master extends Logging {
                                   port: Int,
                                   webUiPort: Int,
                                   conf: SparkConf): (RpcEnv, Int, Option[Int]) = {
+        // 安全管理器, 主要对账号, 权限及身份认证进行设置和管理
         val securityMgr = new SecurityManager(conf)
         // 创建 Master 端的 RpcEnv 环境, 并启动 RpcEnv
         // 参数: sparkMaster hadoop201 7077 conf securityMgr
         // 返回值  的实际类型是: NettyRpcEnv
-        val rpcEnv: RpcEnv = RpcEnv.create(SYSTEM_NAME, host, port, conf, securityMgr)
+        val rpcEnv: RpcEnv = RpcEnv.create(SYSTEM_NAME, host, port, conf, securityMgr)  // ->
         // 创建 Master对象, 该对象就是一个 RpcEndpoint, 在 RpcEnv 中注册这个 RpcEndpoint
-        // 返回该 RpcEndpoint 的引用, 使用该引用来接收信息和发送信息
+        // 返回该 RpcEndpoint 的引用(master 的RpcEndpointRef)
         val masterEndpoint: RpcEndpointRef = rpcEnv.setupEndpoint(ENDPOINT_NAME,
-            new Master(rpcEnv, rpcEnv.address, webUiPort, securityMgr, conf))
+            new Master(rpcEnv, rpcEnv.address, webUiPort, securityMgr, conf)) //->
         // 向 Master 的通信终端发法请求，获取 BoundPortsResponse 对象
         // BoundPortsResponse 是一个样例类包含三个属性: rpcEndpointPort webUIPort restPort
         val portsResponse: BoundPortsResponse = masterEndpoint.askWithRetry[BoundPortsResponse](BoundPortsRequest)

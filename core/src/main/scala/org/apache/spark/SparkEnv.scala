@@ -239,8 +239,9 @@ object SparkEnv extends Logging {
                     "wire.")
             }
         }
-
+        // 生成系统名称: sparkDriver 或 sparkExecutor
         val systemName = if (isDriver) driverSystemName else executorSystemName
+        // 创建RpcEnv
         val rpcEnv = RpcEnv.create(systemName, bindAddress, advertiseAddress, port, conf,
             securityManager, clientMode = !isDriver)
 
@@ -280,28 +281,34 @@ object SparkEnv extends Logging {
             instantiateClass[T](conf.get(propertyName, defaultClassName))
         }
 
+        // 默认的序列化器: java序列器(可以手动配置)
         val serializer = instantiateClassFromConf[Serializer](
             "spark.serializer", "org.apache.spark.serializer.JavaSerializer")
         logDebug(s"Using serializer: ${serializer.getClass}")
-
+        
+        // 创建序列化管理器
         val serializerManager = new SerializerManager(serializer, conf, ioEncryptionKey)
-
+        // 创建闭包序列化器: 不能选择, 只能是Java的序列化
         val closureSerializer = new JavaSerializer(conf)
 
         def registerOrLookupEndpoint(
                                         name: String, endpointCreator: => RpcEndpoint):
         RpcEndpointRef = {
-            if (isDriver) {
+            if (isDriver) { // 如果是driver
                 logInfo("Registering " + name)
                 rpcEnv.setupEndpoint(name, endpointCreator)
-            } else {
+            } else { // 如果是executor
                 RpcUtils.makeDriverRef(name, conf, rpcEnv)
             }
         }
-
+        
+        // 创建广播管理器: 用于将配置信息和序列化后的RDD,job及ShuffleDependency等信息存储在本地存储.
         val broadcastManager = new BroadcastManager(isDriver, conf, securityManager)
-
-        val mapOutputTracker = if (isDriver) {
+        
+        // 用于跟踪 map 任务的输出状态, 此状态便于reduce任务定位map输出结果所在的节点地址, 进而获取输出中间结果
+        // 每个map任何和reduce任务都会有唯一标识, 分表为mapId和reduceId
+        // 每次shuffle都有唯一的标识: shuffleId
+        val mapOutputTracker: MapOutputTracker = if (isDriver) {
             new MapOutputTrackerMaster(conf, broadcastManager, isLocal)
         } else {
             new MapOutputTrackerWorker(conf)

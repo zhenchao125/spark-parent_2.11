@@ -30,19 +30,27 @@ import org.apache.spark.util.RpcUtils
 private[spark] abstract class RpcEndpointRef(conf: SparkConf)
   extends Serializable with Logging {
 
+  // Rpc最大连接次数, 可用使用spark.rpc.numRetries来设置, 默认为3   conf.getInt("spark.rpc.numRetries", 3)
   private[this] val maxRetries = RpcUtils.numRetries(conf)
+  // Rpc每次连接需要等待的毫秒数 conf.getTimeAsMs("spark.rpc.retry.wait", "3s")
   private[this] val retryWaitMs = RpcUtils.retryWaitMs(conf)
+  // Rpc的ask操作默认超时时间 RpcTimeout(conf, Seq("spark.rpc.askTimeout", "spark.network.timeout"), "120s")
   private[this] val defaultAskTimeout = RpcUtils.askRpcTimeout(conf)
 
   /**
    * return the address for the [[RpcEndpointRef]]
+    * 返回当前RpcEndpointRef对应的RpcEndpoint的地址
    */
   def address: RpcAddress
-
+  
+  /**
+    * 返回当前RpcEndpointRef对应的RpcEndpoint的名称
+    */
   def name: String
 
   /**
    * Sends a one-way asynchronous message. Fire-and-forget semantics.
+    * 发送单向异步消息. (at-most-once)
    */
   def send(message: Any): Unit
 
@@ -51,6 +59,7 @@ private[spark] abstract class RpcEndpointRef(conf: SparkConf)
    * receive the reply within the specified timeout.
    *
    * This method only sends the message once and never retries.
+    *
    */
   def ask[T: ClassTag](message: Any, timeout: RpcTimeout): Future[T]
 
@@ -59,6 +68,8 @@ private[spark] abstract class RpcEndpointRef(conf: SparkConf)
    * receive the reply within a default timeout.
    *
    * This method only sends the message once and never retries.
+    * 发送消息给对应RpcEndpoint的receiveAndReply方法
+    * at-most-once
    */
   def ask[T: ClassTag](message: Any): Future[T] = ask(message, defaultAskTimeout)
 
@@ -70,6 +81,11 @@ private[spark] abstract class RpcEndpointRef(conf: SparkConf)
    *
    * Note: this is a blocking action which may cost a lot of time,  so don't call it in a message
    * loop of [[RpcEndpoint]].
+    *
+    * 发送同步请求.并在指定时间内等待返回类型为T的处理结果.
+    * 当抛出异常的时候, 会进行请求重试, 直到超出重试次数
+    *
+    * 这个方法会有阻塞行为, 所以不要循环调用它
    *
    * @param message the message to send
    * @tparam T type of the reply message

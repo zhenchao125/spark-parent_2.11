@@ -17,6 +17,8 @@
 
 package org.apache.spark.shuffle.sort
 
+import java.io.File
+
 import org.apache.spark._
 import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.MapStatus
@@ -68,7 +70,7 @@ private[spark] class SortShuffleWriter[K, V, C](
         // because it just opens a single file, so is typically too fast to measure accurately
         // (see SPARK-3570).
         // 数据 shuffle 数据文件
-        val output = shuffleBlockResolver.getDataFile(dep.shuffleId, mapId)
+        val output: File = shuffleBlockResolver.getDataFile(dep.shuffleId, mapId)
         val tmp = Utils.tempFileWith(output)
         try { // 将 map 端缓存的数据写入到磁盘中, 并生成 Block 文件对应的索引文件.
             val blockId = ShuffleBlockId(dep.shuffleId, mapId, IndexShuffleBlockResolver.NOOP_REDUCE_ID)

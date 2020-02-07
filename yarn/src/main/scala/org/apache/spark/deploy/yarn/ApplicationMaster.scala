@@ -18,7 +18,7 @@
 package org.apache.spark.deploy.yarn
 
 import java.io.{File, IOException}
-import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.{InvocationTargetException, Method}
 import java.net.{Socket, URI, URL}
 import java.util.concurrent.{TimeUnit, TimeoutException}
 
@@ -376,13 +376,15 @@ private[spark] class ApplicationMaster(
       * In cluster mode, the AM and the driver belong to same process
       * so the AMEndpoint need not monitor lifecycle of the driver.
       *
+     *  创建一个RpcEndpoint, 负责和 driver 通讯
+     *  在 cluster 模式下, AM和driver属于同一个进程, 所以, AMEndpoint不需要去监控driver的生命周期
       * @return A reference to the driver's RPC endpoint.
       */
     private def runAMEndpoint(
                                  host: String,
                                  port: String,
                                  isClusterMode: Boolean): RpcEndpointRef = {
-        val driverEndpoint = rpcEnv.setupEndpointRef(
+        val driverEndpoint: RpcEndpointRef = rpcEnv.setupEndpointRef(
             RpcAddress(host, port.toInt),
             YarnSchedulerBackend.ENDPOINT_NAME)
         amEndpoint =
@@ -401,11 +403,12 @@ private[spark] class ApplicationMaster(
         logInfo("Waiting for spark context initialization...")
         val totalWaitTime = sparkConf.get(AM_MAX_WAIT_TIME)
         try {
-            val sc = ThreadUtils.awaitResult(sparkContextPromise.future,
+            // 等待 SparkContext 初始化完成
+            val sc: SparkContext = ThreadUtils.awaitResult(sparkContextPromise.future,
                 Duration(totalWaitTime, TimeUnit.MILLISECONDS))
             if (sc != null) {
                 rpcEnv = sc.env.rpcEnv
-                val driverRef = runAMEndpoint(
+                val driverRef: RpcEndpointRef = runAMEndpoint(
                     sc.getConf.get("spark.driver.host"),
                     sc.getConf.get("spark.driver.port"),
                     isClusterMode = true)
@@ -610,6 +613,10 @@ private[spark] class ApplicationMaster(
       * we assume it was successful, for all other cases we assume failure.
       *
       * Returns the user thread that was started.
+     *
+     * 在一个独立线程中启动用户类, 它包含 Spark driver
+     *
+     *
       */
     private def startUserApplication(): Thread = {
         logInfo("Starting the user application in a separate Thread")
@@ -635,11 +642,11 @@ private[spark] class ApplicationMaster(
             // TODO(davies): add R dependencies here
         }
         // 得到用户类的 main 方法
-        val mainMethod = userClassLoader.loadClass(args.userClass)
+        val mainMethod: Method = userClassLoader.loadClass(args.userClass)
             .getMethod("main", classOf[Array[String]])
         
         // 在子线程内执行用户类的 main 方法
-        val userThread = new Thread {
+        val userThread: Thread = new Thread {
             override def run() {
                 try {
                     // 调用用户类的 main 方法

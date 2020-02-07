@@ -2208,7 +2208,7 @@ private[spark] object Utils extends Logging {
                                  startService: Int => (T, Int),
                                  conf: SparkConf,
                                  serviceName: String = ""): (T, Int) = {
-        
+        // 端口号必须是0或者[1024,65536)之间  备注: 如果是0, 则将来会随机生成一个端口号
         require(startPort == 0 || (1024 <= startPort && startPort < 65536),
             "startPort should be between 1024 and 65535 (inclusive), or 0 for a random free port.")
         
@@ -2223,6 +2223,7 @@ private[spark] object Utils extends Logging {
                 ((startPort + offset - 1024) % (65536 - 1024)) + 1024
             }
             try {
+                // 启动服务的核心代码 ->
                 val (service, port) = startService(tryPort)
                 logInfo(s"Successfully started service$serviceString on port $port.")
                 return (service, port)

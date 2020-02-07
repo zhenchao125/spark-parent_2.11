@@ -156,7 +156,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
                 } else {
                     // If the executor's rpc env is not listening for incoming connections, `hostPort`
                     // will be null, and the client connection should be used to contact the executor.
-                    val executorAddress = if (executorRef.address != null) {
+                    val executorAddress: RpcAddress = if (executorRef.address != null) {
                         executorRef.address
                     } else {
                         context.senderAddress

@@ -171,7 +171,7 @@ private[spark] class TaskSchedulerImpl(
     override def submitTasks(taskSet: TaskSet) {
         val tasks = taskSet.tasks
         logInfo("Adding task set " + taskSet.id + " with " + tasks.length + " tasks")
-        this.synchronized {
+        this.synchronized {  // synchronized(this){   }
             // 创建 TaskSetManger 对象. 用来追踪每个任务   每个 stage 对应一个 TaskSetManager
             val manager: TaskSetManager = createTaskSetManager(taskSet, maxTaskFailures)
             val stage = taskSet.stageId

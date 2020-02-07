@@ -37,14 +37,20 @@ import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
 import scala.util.{Failure, Random, Success}
 
+/*
+Worker一方面向Master汇报自身所管理的资源信息, 一方面接受Master的命令运行Driver或者为Application运行Executor.
+1. 同一个机器上可以同时部署多个worker服务.
+2. 一个worker有可以启动多个Executor.
+3. 当Executor执行完成后, Worker将回收Executor使用的资源
+ */
 private[deploy] class Worker(
                                 override val rpcEnv: RpcEnv,
                                 webUiPort: Int,
                                 cores: Int,
                                 memory: Int,
-                                masterRpcAddresses: Array[RpcAddress],
-                                endpointName: String,
-                                workDirPath: String = null,
+                                masterRpcAddresses: Array[RpcAddress], //master的地址, 高可用情况下有多个master
+                                endpointName: String,  // Worker注册到RpcEnv的名字
+                                workDirPath: String = null, // worker的工作目录
                                 val conf: SparkConf,
                                 val securityMgr: SecurityManager)
     extends ThreadSafeRpcEndpoint with Logging {
@@ -56,6 +62,7 @@ private[deploy] class Worker(
     assert(port > 0)
     
     // A scheduled executor used to send messages at the specified time.
+    // 用于发送消息的调度执行器. 只能调度一个线程
     private val forwordMessageScheduler =
         ThreadUtils.newDaemonSingleThreadScheduledExecutor("worker-forward-message-scheduler")
     
@@ -68,6 +75,7 @@ private[deploy] class Worker(
     private def createDateFormat = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
     
     // Send a heartbeat every (heartbeat timeout) / 4 milliseconds
+    // 向master发送心跳的间隔 默认15s
     private val HEARTBEAT_MILLIS = conf.getLong("spark.worker.timeout", 60) * 1000 / 4
     
     // Model retries to connect to the master, after Hadoop's model.
@@ -140,12 +148,13 @@ private[deploy] class Worker(
     private val workerSource = new WorkerSource(this)
     
     private var registerMasterFutures: Array[JFuture[_]] = null
+    //
     private var registrationRetryTimer: Option[JScheduledFuture[_]] = None
     
     // A thread pool for registering with masters. Because registering with a master is a blocking
     // action, this thread pool must be able to create "masterRpcAddresses.size" threads at the same
     // time so that we can register with all masters.
-    private val registerMasterThreadPool = ThreadUtils.newDaemonCachedThreadPool(
+    private val registerMasterThreadPool: ThreadPoolExecutor = ThreadUtils.newDaemonCachedThreadPool(
         "worker-register-master-threadpool",
         masterRpcAddresses.length // Make sure we can register with all masters at the same time
     )
@@ -176,7 +185,7 @@ private[deploy] class Worker(
     }
     
     override def onStart() {
-        // 第一次启动断言 Worker 未注册
+        // 第一次启动要求 Worker 未注册
         assert(!registered)
         logInfo("Starting Spark worker %s:%d with %d cores, %s RAM".format(
             host, port, cores, Utils.megabytesToString(memory)))
@@ -186,12 +195,12 @@ private[deploy] class Worker(
         createWorkDir()
         // 如果可以用, 则启动 shuffle 服务
         shuffleService.startIfEnabled()
-        // Worker的 WebUI
+        // Worker的 WebUI(master 8080  worker 8081  job 4040)
         webUi = new WorkerWebUI(this, workDir, webUiPort)
         webUi.bind()
         
         workerWebUiUrl = s"http://$publicAddress:${webUi.boundPort}"
-        // 向 Master 注册 Worker (核心逻辑)
+        // 向 Master 注册 Worker (核心逻辑) ->
         registerWithMaster()
         
         metricsSystem.registerSource(workerSource)
@@ -212,7 +221,7 @@ private[deploy] class Worker(
         // Cancel any outstanding re-registration attempts because we found a new master
         cancelLastRegistrationRetry()
     }
-    
+    // 尝试向所有的master注册
     private def tryRegisterAllMasters(): Array[JFuture[_]] = {
         masterRpcAddresses.map { masterAddress =>
             // 从线程池中启动线程来执行 Worker 向 Master 注册
@@ -221,7 +230,7 @@ private[deploy] class Worker(
                     try {
                         logInfo("Connecting to master " + masterAddress + "...")
                         // 根据 Master 的地址得到一个 Master 的 RpcEndpointRef, 然后就可以和 Master 进行通讯了.
-                        val masterEndpoint = rpcEnv.setupEndpointRef(masterAddress, Master.ENDPOINT_NAME)
+                        val masterEndpoint: RpcEndpointRef = rpcEnv.setupEndpointRef(masterAddress, Master.ENDPOINT_NAME)
                         // 向 Master 注册
                         registerWithMaster(masterEndpoint)
                     } catch {
@@ -234,38 +243,38 @@ private[deploy] class Worker(
     }
     
     /**
-      * Re-register with the master because a network failure or a master failure has occurred.
-      * If the re-registration attempt threshold is exceeded, the worker exits with error.
-      * Note that for thread-safety this should only be called from the rpcEndpoint.
-      */
+     * Re-register with the master because a network failure or a master failure has occurred.
+     * If the re-registration attempt threshold is exceeded, the worker exits with error.
+     * Note that for thread-safety this should only be called from the rpcEndpoint.
+     */
     private def reregisterWithMaster(): Unit = {
         Utils.tryOrExit {
             connectionAttemptCount += 1
-            if (registered) {
+            if (registered) {  // 已经注册过了
                 cancelLastRegistrationRetry()
             } else if (connectionAttemptCount <= TOTAL_REGISTRATION_RETRIES) {
                 logInfo(s"Retrying connection to master (attempt # $connectionAttemptCount)")
                 
                 /**
-                  * Re-register with the active master this worker has been communicating with. If there
-                  * is none, then it means this worker is still bootstrapping and hasn't established a
-                  * connection with a master yet, in which case we should re-register with all masters.
-                  *
-                  * It is important to re-register only with the active master during failures. Otherwise,
-                  * if the worker unconditionally attempts to re-register with all masters, the following
-                  * race condition may arise and cause a "duplicate worker" error detailed in SPARK-4592:
-                  *
-                  * (1) Master A fails and Worker attempts to reconnect to all masters
-                  * (2) Master B takes over and notifies Worker
-                  * (3) Worker responds by registering with Master B
-                  * (4) Meanwhile, Worker's previous reconnection attempt reaches Master B,
-                  * causing the same Worker to register with Master B twice
-                  *
-                  * Instead, if we only register with the known active master, we can assume that the
-                  * old master must have died because another master has taken over. Note that this is
-                  * still not safe if the old master recovers within this interval, but this is a much
-                  * less likely scenario.
-                  */
+                 * Re-register with the active master this worker has been communicating with. If there
+                 * is none, then it means this worker is still bootstrapping and hasn't established a
+                 * connection with a master yet, in which case we should re-register with all masters.
+                 *
+                 * It is important to re-register only with the active master during failures. Otherwise,
+                 * if the worker unconditionally attempts to re-register with all masters, the following
+                 * race condition may arise and cause a "duplicate worker" error detailed in SPARK-4592:
+                 *
+                 * (1) Master A fails and Worker attempts to reconnect to all masters
+                 * (2) Master B takes over and notifies Worker
+                 * (3) Worker responds by registering with Master B
+                 * (4) Meanwhile, Worker's previous reconnection attempt reaches Master B,
+                 * causing the same Worker to register with Master B twice
+                 *
+                 * Instead, if we only register with the known active master, we can assume that the
+                 * old master must have died because another master has taken over. Note that this is
+                 * still not safe if the old master recovers within this interval, but this is a much
+                 * less likely scenario.
+                 */
                 master match {
                     case Some(masterRef) =>
                         // registered == false && master != None means we lost the connection to master, so
@@ -314,9 +323,18 @@ private[deploy] class Worker(
         }
     }
     
+    def  foo() = {
+        val opt: Option[Int] = Some(10)
+//        val v: Int = opt.get
+        opt match {
+            case Some(v) => println(v)
+            case None =>
+        }
+    }
+    
     /**
-      * Cancel last registeration retry, or do nothing if no retry
-      */
+     * Cancel last registeration retry, or do nothing if no retry
+     */
     private def cancelLastRegistrationRetry(): Unit = {
         if (registerMasterFutures != null) {
             registerMasterFutures.foreach(_.cancel(true))
@@ -327,8 +345,8 @@ private[deploy] class Worker(
     }
     
     /**
-      * 向 Master 注册 Worker
-      */
+     * 向 Master 注册 Worker
+     */
     private def registerWithMaster() {
         // onDisconnected may be triggered multiple times, so don't attempt registration
         // if there are outstanding registration attempts scheduled.
@@ -338,6 +356,7 @@ private[deploy] class Worker(
                 // 向所有的 Master 注册
                 registerMasterFutures = tryRegisterAllMasters()
                 connectionAttemptCount = 0
+                // 前面有可能注册失败, 后面再以固定的品向 master 注册
                 registrationRetryTimer = Some(forwordMessageScheduler.scheduleAtFixedRate(
                     new Runnable {
                         override def run(): Unit = Utils.tryLogNonFatalError {
@@ -357,6 +376,8 @@ private[deploy] class Worker(
     private def registerWithMaster(masterEndpoint: RpcEndpointRef): Unit = {
         // 向 Master 对应的 receiveAndReply 方法发送信息
         // 信息的类型是 RegisterWorker, 包括 Worker 的一些信息: id, 主机地址, 端口号, 内存, webUi
+        // ask: 发送信息的时候, 要求对方有回应
+        // send: 发送信息, 不强制要求对方有回应
         masterEndpoint.ask[RegisterWorkerResponse](RegisterWorker(
             workerId, host, port, self, cores, memory, workerWebUiUrl))
             .onComplete {
@@ -604,9 +625,9 @@ private[deploy] class Worker(
     }
     
     /**
-      * Send a message to the current master. If we have not yet registered successfully with any
-      * master, the message will be dropped.
-      */
+     * Send a message to the current master. If we have not yet registered successfully with any
+     * master, the message will be dropped.
+     */
     private def sendToMaster(message: Any): Unit = {
         master match {
             case Some(masterRef) => masterRef.send(message)
@@ -727,7 +748,7 @@ private[deploy] object Worker extends Logging {
                                   webUiPort: Int,
                                   cores: Int,
                                   memory: Int,
-                                  masterUrls: Array[String],
+                                  masterUrls: Array[String],  // 考虑到高可用, 会有多个master
                                   workDir: String,
                                   workerNumber: Option[Int] = None,
                                   conf: SparkConf = new SparkConf): RpcEnv = {

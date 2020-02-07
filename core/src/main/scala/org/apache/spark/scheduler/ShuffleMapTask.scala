@@ -26,7 +26,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.shuffle.ShuffleWriter
+import org.apache.spark.shuffle.{ShuffleManager, ShuffleWriter}
 
 import scala.language.existentials
 
@@ -93,7 +93,7 @@ private[spark] class ShuffleMapTask(
         // 核心代码:  ShuffleWriter负责写需要 shuffle 的数据
         var writer: ShuffleWriter[Any, Any] = null
         try {
-            val manager = SparkEnv.get.shuffleManager
+            val manager: ShuffleManager = SparkEnv.get.shuffleManager
             // 获取到 ShuffleWriter 对象
             writer = manager.getWriter[Any, Any](dep.shuffleHandle, partitionId, context)
             // 写出 RDD 中的数据.  然后reduce阶段的task去读

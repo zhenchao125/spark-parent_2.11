@@ -18,7 +18,7 @@
 package org.apache.spark.deploy
 
 import java.io.{File, PrintStream}
-import java.lang.reflect.{InvocationTargetException, Modifier, UndeclaredThrowableException}
+import java.lang.reflect.{InvocationTargetException, Method, Modifier, UndeclaredThrowableException}
 import java.net.URL
 import java.security.PrivilegedExceptionAction
 
@@ -126,7 +126,7 @@ object SparkSubmit {
             --class org.apache.spark.examples.SparkPi
             ./examples/jars/spark-examples_2.11-2.1.1.jar 100
         */
-        val appArgs = new SparkSubmitArguments(args)
+        val appArgs: SparkSubmitArguments = new SparkSubmitArguments(args)
         if (appArgs.verbose) {
             // scalastyle:off println
             printStream.println(appArgs)
@@ -178,10 +178,10 @@ object SparkSubmit {
       */
     @tailrec
     private def submit(args: SparkSubmitArguments): Unit = {
-        // 准备提交环境 yarn-cluster:  childMainClass = org.apache.spark.deploy.yarn.Client
-        
-        // 当是client: childMainClass = args.mainClass
-        val (childArgs, childClasspath, sysProps, childMainClass) = prepareSubmitEnvironment(args)
+        // 准备提交环境
+        // 当是 yarn-cluster 模式: childMainClass = org.apache.spark.deploy.yarn.Client
+        // 当是 yarn-client 模式:  childMainClass = args.mainClass
+        val (childArgs, childClasspath, sysProps, childMainClass) = prepareSubmitEnvironment(args) // ->
         
         def doRunMain(): Unit = {
             if (args.proxyUser != null) {
@@ -245,6 +245,9 @@ object SparkSubmit {
       * (3) a map of system properties, and
       * (4) the main class for the child
       * Exposed for testing.
+     *
+     * 为提交由应用准备参数:
+     * 方法返回4-tuples
       */
     private[deploy] def prepareSubmitEnvironment(args: SparkSubmitArguments)
     : (Seq[String], Seq[String], Map[String, String], String) = {
@@ -253,7 +256,7 @@ object SparkSubmit {
         val childArgs = new ArrayBuffer[String]()
         val childClasspath = new ArrayBuffer[String]()
         val sysProps = new HashMap[String, String]()
-        var childMainClass = ""
+        var childMainClass = ""   // 重点
         
         // Set the cluster manager
         // 设置集群管理器
@@ -263,7 +266,7 @@ object SparkSubmit {
                 printWarning(s"Master ${args.master} is deprecated since 2.0." +
                     " Please use master \"yarn\" with specified deploy mode instead.")
                 YARN
-            case m if m.startsWith("spark") => STANDALONE
+            case m if m.startsWith("spark") => STANDALONE   // --master mesos://hadoop102:7077
             case m if m.startsWith("mesos") => MESOS
             case m if m.startsWith("local") => LOCAL
             case _ =>
@@ -310,7 +313,9 @@ object SparkSubmit {
             case (null, CLUSTER) => args.deployMode = "cluster"
             case _ =>
         }
-        val isYarnCluster = clusterManager == YARN && deployMode == CLUSTER
+        // 是否为 Yarn 集群模式
+        val isYarnCluster: Boolean = clusterManager == YARN && deployMode == CLUSTER
+        // 是否为 Mesos 集群模式
         val isMesosCluster = clusterManager == MESOS && deployMode == CLUSTER
         
         // Resolve maven dependencies if there are any and add classpath to jars. Add them to py-files
@@ -515,10 +520,11 @@ object SparkSubmit {
         // In addition, add the main application jar and any added jars (if any) to the classpath
         // Also add the main application jar and any added jars to classpath in case YARN client
         // requires these jars.
+        // 分发模式是 CLIENT或者是Yarn集群模式 : childMainClass = args.mainClass (用户主类)
         if (deployMode == CLIENT || isYarnCluster) {
             // 如果是客户端模式, childMainClass 就是用户的类
             // 集群模式下, childMainClass 被重新赋值为 org.apache.spark.deploy.yarn.Client
-            childMainClass = args.mainClass
+            childMainClass = args.mainClass  // 用户主类
             if (isUserJar(args.primaryResource)) {
                 childClasspath += args.primaryResource
             }
@@ -768,8 +774,8 @@ object SparkSubmit {
             printWarning("Subclasses of scala.App may not work correctly. Use a main() method instead.")
         }
         // 反射出来 Client 的 main 方法
-        // 如果是 yarn-client 就是反射的用户类的main
-        val mainMethod = mainClass.getMethod("main", new Array[String](0).getClass)
+        // 如果是 yarn-client 就是反射的用户类的 main
+        val mainMethod: Method = mainClass.getMethod("main", new Array[String](0).getClass)
         // main 方法必须是静态的
         if (!Modifier.isStatic(mainMethod.getModifiers)) {
             throw new IllegalStateException("The main method in the given main class must be static")
@@ -786,7 +792,7 @@ object SparkSubmit {
         }
         
         try {
-            // 调用 main 方法.
+            // 调用 main 方法.   Client.main(childArgs.toArray)
             mainMethod.invoke(null, childArgs.toArray)
         } catch {
             case t: Throwable =>

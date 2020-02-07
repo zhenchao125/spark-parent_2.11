@@ -139,6 +139,7 @@ private[spark] abstract class Task[T](
     }
     
     def runTask(context: TaskContext): T
+    
 
     def preferredLocations: Seq[TaskLocation] = Nil
 

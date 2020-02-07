@@ -32,27 +32,32 @@ import org.apache.spark.util.ThreadUtils
 
 /**
  * A message dispatcher, responsible for routing RPC messages to the appropriate endpoint(s).
+  * 消息分发器, 负责路由RPC消息到一个或多个合适的Endpoint
  */
 private[netty] class Dispatcher(nettyEnv: NettyRpcEnv) extends Logging {
-
+  // 端点数据: 端点名, 端点, EndpointRef
   private class EndpointData(
       val name: String,
       val endpoint: RpcEndpoint,
       val ref: NettyRpcEndpointRef) {
-    val inbox = new Inbox(ref, endpoint)
+    // 每个Endpoint的收件箱
+    val inbox: Inbox = new Inbox(ref, endpoint)
   }
-
+  // 端点实例名称与端点数据之间映射关系的缓存. 可以根据端点名称快速的找到或删除EndpointData
   private val endpoints: ConcurrentMap[String, EndpointData] =
     new ConcurrentHashMap[String, EndpointData]
+  // 端点实例与端点ref之间的映射关系
   private val endpointRefs: ConcurrentMap[RpcEndpoint, RpcEndpointRef] =
     new ConcurrentHashMap[RpcEndpoint, RpcEndpointRef]
 
   // Track the receivers whose inboxes may contain messages.
+  // 存储EndpointData的阻塞队列. 只有Inbox中有消息的EndpointData才会加入到此队列
   private val receivers = new LinkedBlockingQueue[EndpointData]
 
   /**
    * True if the dispatcher has been stopped. Once stopped, all messages posted will be bounced
    * immediately.
+    * dispatcher是否停止的状态
    */
   @GuardedBy("this")
   private var stopped = false
@@ -64,11 +69,15 @@ private[netty] class Dispatcher(nettyEnv: NettyRpcEnv) extends Logging {
       if (stopped) {
         throw new IllegalStateException("RpcEnv has been stopped")
       }
+      // 把 RpcEndpoint 放入到 map集合中
       if (endpoints.putIfAbsent(name, new EndpointData(name, endpoint, endpointRef)) != null) {
         throw new IllegalArgumentException(s"There is already an RpcEndpoint called $name")
       }
+      // 过去刚刚放入map集合的RpcEndpoint
       val data = endpoints.get(name)
+      // 把 RpcEndpoint和 RpcEndpointRef做映射
       endpointRefs.put(data.endpoint, data.ref)
+      // 把EndpointData 放入阻塞队列中
       receivers.offer(data)  // for the OnStart message
     }
     endpointRef
@@ -175,7 +184,7 @@ private[netty] class Dispatcher(nettyEnv: NettyRpcEnv) extends Logging {
     receivers.offer(PoisonPill)
     threadpool.shutdown()
   }
-
+  
   def awaitTermination(): Unit = {
     threadpool.awaitTermination(Long.MaxValue, TimeUnit.MILLISECONDS)
   }
@@ -187,14 +196,22 @@ private[netty] class Dispatcher(nettyEnv: NettyRpcEnv) extends Logging {
     endpoints.containsKey(name)
   }
 
-  /** Thread pool used for dispatching messages. */
+  /** Thread pool used for dispatching messages.
+    *
+    * 用于对消息进行调度的线程池
+    * */
   private val threadpool: ThreadPoolExecutor = {
+    // 线程池的大小
     val numThreads = nettyEnv.conf.getInt("spark.rpc.netty.dispatcher.numThreads",
       math.max(2, Runtime.getRuntime.availableProcessors()))
+    // 创建线程池. 固定大小, 并且启动的线程都是后台线程
     val pool = ThreadUtils.newDaemonFixedThreadPool(numThreads, "dispatcher-event-loop")
+    // 启动运行MessageLoop的线程
     for (i <- 0 until numThreads) {
+      // ->
       pool.execute(new MessageLoop)
     }
+    // 返回线程池
     pool
   }
 
@@ -204,12 +221,14 @@ private[netty] class Dispatcher(nettyEnv: NettyRpcEnv) extends Logging {
       try {
         while (true) {
           try {
+            // 从阻塞的EndpointData队列中取出一个 EndpointData
             val data = receivers.take()
             if (data == PoisonPill) {
               // Put PoisonPill back so that other MessageLoops can see it.
               receivers.offer(PoisonPill)
               return
             }
+            // 处理信息
             data.inbox.process(Dispatcher.this)
           } catch {
             case NonFatal(e) => logError(e.getMessage, e)
@@ -221,6 +240,8 @@ private[netty] class Dispatcher(nettyEnv: NettyRpcEnv) extends Logging {
     }
   }
 
-  /** A poison endpoint that indicates MessageLoop should exit its message loop. */
+  /** A poison endpoint that indicates MessageLoop should exit its message loop.
+    * 一个有毒的endpoint, 表示MessageLoop应该退出
+    * */
   private val PoisonPill = new EndpointData(null, null, null)
 }

@@ -36,10 +36,11 @@ import org.apache.spark.util.io.{ChunkedByteBuffer, ChunkedByteBufferOutputStrea
 private[spark] class SerializerManager(
     defaultSerializer: Serializer,
     conf: SparkConf,
+    // 加密使用的秘钥
     encryptionKey: Option[Array[Byte]]) {
 
   def this(defaultSerializer: Serializer, conf: SparkConf) = this(defaultSerializer, conf, None)
-
+  // spark的提供的另外一种序列化机制
   private[this] val kryoSerializer = new KryoSerializer(conf)
 
   private[this] val stringClassTag: ClassTag[String] = implicitly[ClassTag[String]]
@@ -60,12 +61,16 @@ private[spark] class SerializerManager(
   }
 
   // Whether to compress broadcast variables that are stored
+  // 是否对广播变量进行压缩
   private[this] val compressBroadcast = conf.getBoolean("spark.broadcast.compress", true)
   // Whether to compress shuffle output that are stored
+  // 是否对shuffle的输出进行压缩
   private[this] val compressShuffle = conf.getBoolean("spark.shuffle.compress", true)
   // Whether to compress RDD partitions that are stored serialized
+  // 是否对RDD进行压缩
   private[this] val compressRdds = conf.getBoolean("spark.rdd.compress", false)
   // Whether to compress shuffle output temporarily spilled to disk
+  // 是否对溢出到磁盘的数据进行压缩
   private[this] val compressShuffleSpill = conf.getBoolean("spark.shuffle.spill.compress", true)
 
   /* The compression codec to use. Note that the "lazy" val is necessary because we want to delay
@@ -73,10 +78,11 @@ private[spark] class SerializerManager(
    * program could be using a user-defined codec in a third party jar, which is loaded in
    * Executor.updateDependencies. When the BlockManager is initialized, user level jars hasn't been
    * loaded yet. */
+  // 压缩编码
   private lazy val compressionCodec: CompressionCodec = CompressionCodec.createCodec(conf)
-
+  // 是否支持加密
   def encryptionEnabled: Boolean = encryptionKey.isDefined
-
+  // 对于制定的类型ct是否使用 Cryo 序列化器
   def canUseKryo(ct: ClassTag[_]): Boolean = {
     primitiveAndPrimitiveArrayClassTags.contains(ct) || ct == stringClassTag
   }

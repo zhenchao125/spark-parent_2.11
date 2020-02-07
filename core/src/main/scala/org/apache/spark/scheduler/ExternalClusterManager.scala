@@ -59,4 +59,5 @@ private[spark] trait ExternalClusterManager {
    * @param backend SchedulerBackend that works with a TaskScheduler
    */
   def initialize(scheduler: TaskScheduler, backend: SchedulerBackend): Unit
+  
 }

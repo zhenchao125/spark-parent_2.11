@@ -60,7 +60,7 @@ private[spark] class CoarseGrainedExecutorBackend(
             // This is a very fast action so we can use "ThreadUtils.sameThread"
             driver = Some(ref)
             //  向驱动注册 Executor
-            //  CoarseGrainedSchedulerBackend
+            //  CoarseGrainedSchedulerBackend  反向注册
             ref.ask[Boolean](RegisterExecutor(executorId, self, hostname, cores, extractLogUrls))
         }(ThreadUtils.sameThread).onComplete {
             // This is a very fast action so we can use "ThreadUtils.sameThread"
@@ -199,20 +199,21 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
             // Bootstrap to fetch the driver's Spark properties.
             val executorConf = new SparkConf
             val port = executorConf.getInt("spark.executor.port", 0)
-            val fetcher = RpcEnv.create(
+            val fetcher: RpcEnv = RpcEnv.create(
                 "driverPropsFetcher",
                 hostname,
                 port,
                 executorConf,
                 new SecurityManager(executorConf),
                 clientMode = true)
-            val driver = fetcher.setupEndpointRefByURI(driverUrl)
-            val cfg = driver.askWithRetry[SparkAppConfig](RetrieveSparkAppConfig)
-            val props = cfg.sparkProperties ++ Seq[(String, String)](("spark.app.id", appId))
+            // 获取到 driver 的 RpcEndpointRef
+            val driver: RpcEndpointRef = fetcher.setupEndpointRefByURI(driverUrl)
+            val cfg: SparkAppConfig = driver.askWithRetry[SparkAppConfig](RetrieveSparkAppConfig)
+            val props: Seq[(String, String)] = cfg.sparkProperties ++ Seq[(String, String)](("spark.app.id", appId))
             fetcher.shutdown()
 
             // Create SparkEnv using properties we fetched from the driver.
-            val driverConf = new SparkConf()
+            val driverConf: SparkConf = new SparkConf()
             for ((key, value) <- props) {
                 // this is required for SSL in standalone mode
                 if (SparkConf.isExecutorStartupConf(key)) {
@@ -226,10 +227,12 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
                     driverConf.get("spark.yarn.credentials.file"))
                 SparkHadoopUtil.get.startCredentialUpdater(driverConf)
             }
-
-            val env = SparkEnv.createExecutorEnv(
+            
+            // 创建 SparkEnv对象
+            val env: SparkEnv = SparkEnv.createExecutorEnv(
                 driverConf, executorId, hostname, port, cores, cfg.ioEncryptionKey, isLocal = false)
-
+            
+            // 设置Executor端的RpcEndpoint: CoarseGrainedExecutorBackend
             env.rpcEnv.setupEndpoint("Executor", new CoarseGrainedExecutorBackend(
                 env.rpcEnv, driverUrl, executorId, hostname, cores, userClassPath, env))
             workerUrl.foreach { url =>
